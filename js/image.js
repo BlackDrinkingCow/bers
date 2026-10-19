@@ -59,11 +59,38 @@ function borderStats(d, W, H) {
 }
 
 /* Flood-fill the background in from the edges. Returns null if the background is too busy to separate. */
+/* Two passes: by colour only (cleanest, the normal case), and edge-aware (keeps a light piece on a light
+   background, but can leave crease shards). The edge-aware result is used only when the colour pass lost most of the piece. */
 function autoMask(d, W, H) {
+  const a = maskPass(d, W, H, false);
+  if (a && a.fg > W * H * 0.06) return a;
+  const b = maskPass(d, W, H, true);
+  const best = b && (!a || b.fg > a.fg * 2) ? b : a;
+  // Safety net: a cut-out that keeps only a sliver (say, just the print of a white tee on a white sheet) is worse than none.
+  return best && best.fg > W * H * 0.05 ? best : null;
+}
+function maskPass(d, W, H, edgeAware) {
   const { median: bg, std } = borderStats(d, W, H);
   if (std > 40) return null;
   const N = W * H, T = Math.max(26, std * 2.6), T2 = T * 2;
   const dist = (i, r, g, b) => Math.hypot(d[i * 4] - r, d[i * 4 + 1] - g, d[i * 4 + 2] - b);
+  // Edges: a white tee on a white sheet is close in colour, but its outline (a faint shadow line) is still an edge.
+  // The fill is not allowed to cross strong edges, so a light piece on a light background survives.
+  const grad = new Float32Array(N);
+  let G = Infinity;
+  if (edgeAware) {
+    const lum = new Float32Array(N);
+    for (let i = 0; i < N; i++) lum[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+    const sm = blur3(blur3(lum, W, H), W, H);
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x;
+      grad[i] = Math.abs(sm[i + 1] - sm[i - 1]) + Math.abs(sm[i + W] - sm[i - W]);
+    }
+    const bandG = []; for (let x = 2; x < W - 2; x += 3) { bandG.push(grad[2 * W + x], grad[(H - 3) * W + x]); }
+    bandG.sort((a, z) => a - z);
+    // just above the strongest edge seen around the photo's border (creases, folds), so only the piece's own outline blocks
+    G = Math.max(4, bandG[Math.floor(bandG.length * 0.995)] * 1.3);
+  }
   const isBg = new Uint8Array(N), q = new Int32Array(N);
   let head = 0, tail = 0;
   const seed = (p) => { if (!isBg[p] && dist(p, ...bg) < T2) { isBg[p] = 1; q[tail++] = p; } };
@@ -72,19 +99,41 @@ function autoMask(d, W, H) {
   while (head < tail) {
     const p = q[head++], x = p % W, r = d[p * 4], g = d[p * 4 + 1], b = d[p * 4 + 2];
     for (const n of [x > 0 ? p - 1 : -1, x < W - 1 ? p + 1 : -1, p - W, p + W]) {
-      if (n < 0 || n >= N || isBg[n]) continue;
+      if (n < 0 || n >= N || isBg[n] || grad[n] > G) continue;
       const toBg = dist(n, ...bg);
       // background if close to the background colour, or a gentle step from background next door (lighting falloff, creases)
       if (toBg < T || (toBg < T2 && dist(n, r, g, b) < 9)) { isBg[n] = 1; q[tail++] = n; }
     }
   }
+  // Cleanup 1: creases and edge lines left standing in the background (thin, background-coloured) get absorbed.
+  for (let pass = 0; pass < 3; pass++) {
+    const add = [];
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x;
+      if (isBg[i] || dist(i, ...bg) > T) continue;
+      if (isBg[i - 1] + isBg[i + 1] + isBg[i - W] + isBg[i + W] >= 2) add.push(i);
+    }
+    add.forEach((i) => (isBg[i] = 1));
+  }
+  // Cleanup 2: drop specks (foreground islands under 0.3% of the photo).
+  const seen = new Uint8Array(N), minArea = N * 0.003;
+  for (let s = 0; s < N; s++) {
+    if (isBg[s] || seen[s]) continue;
+    const comp = [s]; seen[s] = 1;
+    for (let k = 0; k < comp.length; k++) {
+      const p = comp[k], x = p % W;
+      for (const n of [x > 0 ? p - 1 : -1, x < W - 1 ? p + 1 : -1, p - W, p + W])
+        if (n >= 0 && n < N && !isBg[n] && !seen[n]) { seen[n] = 1; comp.push(n); }
+    }
+    if (comp.length < minArea) comp.forEach((p) => (isBg[p] = 1));
+  }
   let fg = 0; for (let i = 0; i < N; i++) fg += !isBg[i];
-  if (fg < N * 0.04 || fg > N * 0.93) return null;
+  if (fg < N * 0.008 || fg > N * 0.93) return null;  // small floor so thin pieces (chains, watches) still cut out
   // soft edge: blur the hard mask twice (3×3), which also trims the halo of background colour
   let a = new Float32Array(N); for (let i = 0; i < N; i++) a[i] = isBg[i] ? 0 : 1;
   for (let pass = 0; pass < 2; pass++) a = blur3(a, W, H);
   for (let i = 0; i < N; i++) a[i] = Math.min(1, Math.max(0, (a[i] - 0.25) / 0.6));
-  return { alpha: a, bg };
+  return { alpha: a, bg, fg };
 }
 function blur3(a, W, H) {
   const o = new Float32Array(a.length);
@@ -186,7 +235,90 @@ export async function studio(src) {
   sharpen(d, W, H);
   for (let i = 0; i < N; i++) d[i * 4 + 3] = Math.round(alpha[i] * 255);
   g.putImageData(id, 0, 0);
-  return { photo: compose(cv, alpha, W, H, cut).toDataURL("image/jpeg", 0.86), cut };
+  return { photo: compose(cv, alpha, W, H, cut).toDataURL("image/jpeg", 0.86), cut, cutout: cut ? trimCutout(cv, alpha, W, H) : null };
+}
+
+/* The piece alone on a transparent background, trimmed and capped at 640px: what outfit boards are built from. */
+function trimCutout(cv, alpha, W, H) {
+  let x0 = W, y0 = H, x1 = 0, y1 = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (alpha[y * W + x] > 0.15) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1, k = Math.min(1, 640 / Math.max(bw, bh));
+  const out = canvas(Math.round(bw * k), Math.round(bh * k));
+  out.getContext("2d").drawImage(cv, x0, y0, bw, bh, 0, 0, out.width, out.height);
+  return out.toDataURL("image/png");
+}
+
+/* ======================= Outfit board =======================
+   The whole outfit as one picture: cut-outs stacked like a flat lay (hat, top, bottoms, shoes) with accessories
+   beside them, on a soft gradient taken from the outfit's own colours. 1080×1350, ready to save or share. */
+const hexRgb = (h) => { const m = /^#?([0-9a-f]{6})$/i.exec(h || ""); const n = m ? parseInt(m[1], 16) : 0x888888; return [n >> 16, (n >> 8) & 255, n & 255]; };
+const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+const rgb = (c) => `rgb(${c[0]},${c[1]},${c[2]})`;
+
+export async function outfitBoard(items, { dark = true } = {}) {
+  // items: [{ slot, color, cutout?, photo?, name }]; order and size come from the slot
+  const W = 1080, H = 1350, cv = canvas(W, H), g = cv.getContext("2d");
+  // backdrop: a tint of the top (or the first piece) fading to soft grey, like a studio sweep
+  const key = hexRgb((items.find((i) => i.slot === "top") || items[0] || {}).color);
+  const base = dark ? [26, 26, 30] : [236, 236, 238], mid = dark ? [44, 44, 50] : [214, 214, 216];
+  const sweep = g.createLinearGradient(0, 0, 0, H);
+  sweep.addColorStop(0, rgb(mix(base, key, dark ? 0.38 : 0.45)));
+  sweep.addColorStop(0.55, rgb(mix(mid, key, dark ? 0.18 : 0.22)));
+  sweep.addColorStop(1, rgb(dark ? [16, 16, 18] : [232, 232, 230]));
+  g.fillStyle = sweep; g.fillRect(0, 0, W, H);
+  const floor = g.createRadialGradient(W / 2, H * 0.92, 10, W / 2, H * 0.92, W * 0.6);
+  floor.addColorStop(0, dark ? "rgba(255,255,255,.06)" : "rgba(255,255,255,.5)"); floor.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = floor; g.fillRect(0, 0, W, H);
+
+  const by = (s) => items.filter((i) => i.slot === s);
+  const hat = by("hat")[0], layer = by("layer")[0], top = by("top")[0] || layer, bottom = by("bottom")[0], shoes = by("shoes")[0];
+  const side = [...by("extra"), ...by("scent")].slice(0, 3);
+  // vertical bands (fractions of the height) for the centre column
+  const rows = [hat && ["hat", 0.13], top && ["top", hat ? 0.3 : 0.34], bottom && ["bottom", 0.38], shoes && ["shoes", 0.17]].filter(Boolean);
+  const total = rows.reduce((s, r) => s + r[1], 0), usable = H * 0.86, gap = H * 0.012;
+  let y = (H - usable) / 2;
+  const colW = side.length ? W * 0.62 : W * 0.7, cx = side.length ? W * 0.42 : W / 2;
+  const imgs = await Promise.all(items.map(async (it) => [it, await loadPiece(it)]));
+  const get = (it) => imgs.find((x) => x[0] === it)?.[1];
+  for (const [s, f] of rows) {
+    const h = (usable * f) / total - gap, it = s === "hat" ? hat : s === "top" ? top : s === "bottom" ? bottom : shoes;
+    const im = get(it);
+    if (s === "top" && layer && layer !== top) {  // a layer sits half behind the top, offset to the right
+      const li = get(layer); if (li) drawPiece(g, li, layer, cx + colW * 0.12, y, colW * 0.9, h, 0.95);
+      drawPiece(g, im, it, cx - colW * 0.08, y + h * 0.04, colW * 0.85, h * 0.96);
+    } else drawPiece(g, im, it, cx, y, s === "shoes" ? colW * 0.62 : s === "hat" ? colW * 0.42 : colW, h);
+    y += h + gap;
+  }
+  // accessories down the right-hand side
+  side.forEach((it, n) => drawPiece(g, get(it), it, W * 0.83, H * (0.2 + n * 0.22), W * 0.24, H * 0.17));
+  return cv.toDataURL("image/jpeg", 0.88);
+}
+
+async function loadPiece(it) {
+  const src = it.cutout || it.photo;
+  if (!src) return null;
+  try { return { img: await loadImage(src), cut: !!it.cutout }; } catch { return null; }
+}
+/* Fit a piece into a box centred on cx, with a soft drop shadow. Pieces without a cut-out sit on a rounded card. */
+function drawPiece(g, im, it, cx, y, w, h, alpha = 1) {
+  g.save(); g.globalAlpha = alpha;
+  g.shadowColor = "rgba(0,0,0,.28)"; g.shadowBlur = 26; g.shadowOffsetY = 10;
+  if (im && im.cut) {
+    const k = Math.min(w / im.img.width, h / im.img.height), dw = im.img.width * k, dh = im.img.height * k;
+    g.drawImage(im.img, cx - dw / 2, y + (h - dh) / 2, dw, dh);
+  } else {
+    const s = Math.min(w, h) * 0.92, x = cx - s / 2, yy = y + (h - s) / 2;
+    g.beginPath(); g.roundRect(x, yy, s, s, 28); g.fillStyle = it?.color || "#888"; g.fill(); g.shadowColor = "transparent";
+    if (im) { g.save(); g.beginPath(); g.roundRect(x, yy, s, s, 28); g.clip(); const k = Math.max(s / im.img.width, s / im.img.height);
+      g.drawImage(im.img, x + (s - im.img.width * k) / 2, yy + (s - im.img.height * k) / 2, im.img.width * k, im.img.height * k); g.restore(); }
+  }
+  g.restore();
+}
+
+/* Make a cut-out for a piece added before boards existed. Returns null if its background is too busy. */
+export async function cutoutFor(src) {
+  const r = await studio(src);
+  return r.cutout;
 }
 
 /* A cut-out copied from iPhone Photos (press and hold the subject → Copy). Safari asks for permission to paste. */

@@ -2,7 +2,7 @@
 import * as db from "./db.js";
 import * as ai from "./ai.js";
 import * as wx from "./weather.js";
-import { fileToDataUrl, squareAvatar, pickPhotos, studio, pasteImage } from "./image.js";
+import { fileToDataUrl, squareAvatar, pickPhotos, studio, pasteImage, outfitBoard, cutoutFor } from "./image.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -53,7 +53,7 @@ const DEFAULT_ABOUT = "";
 
 /* ---------- state */
 const S = { tab: "gear", pieces: [], P: {}, log: [], looks: [], occ: null, ride: "commute", filter: "all", busy: {},
-  pick: null, dared: false, rpick: null, forge: [null, null, null, null], verdict: null, chat: [], weather: null, crewPics: {} };
+  pick: null, dared: false, rpick: null, forge: [null, null, null, null, null], verdict: null, chat: [], weather: null, crewPics: {} };
 
 async function loadData() {
   S.pieces = await db.all("pieces");
@@ -211,12 +211,14 @@ function gear() {
     </div>`}
     ${(S.busy.go || S.busy.another) && !pk ? skelFit() : ""}
     ${pk ? `
-    ${S.busy.go || S.busy.another ? skelFit() : `<div class="glass fit">${ids.filter((id) => S.P[id]).map((id) => pieceBtn(S.P[id])).join("")}</div>`}
+    ${S.busy.go || S.busy.another ? skelFit() : `${boardHtml(ids.filter((id) => S.P[id]), "day")}
+    <div class="glass fit">${ids.filter((id) => S.P[id]).map((id) => pieceBtn(S.P[id])).join("")}</div>`}
     ${pk.repeat ? agent("rogue", pk.repeat) : ""}
     ${pk.layer && S.P[pk.layer] ? `<div class="glass tip">${mini(S.P[pk.layer])}<span><b>AC layer.</b> <span class="dim">${esc(pk.layerTip || "Carry it for the cold malls.")}</span></span></div>` : ""}
     <div class="glass pad"><h2>${d ? "Why the dare works" : "Why this works"}</h2><ul class="why">${(d ? pk.dare.why : pk.why).map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>
     <div class="actions"><button class="btn main" id="wear">Wear this</button>${busyBtn("another", "Another option", "btn")}
       <button class="btn" id="save-look">Save look</button><button class="btn" id="ask">Ask Chopper</button></div>
+    <button class="btn" id="board-save">Save outfit image</button>
     <p class="dim center m0 small">Tap any piece to swap it.</p>
     ${d ? `<button class="btn" id="undare">Back to Chopper's pick</button>` : pk.dare && pk.darePieces.length ? `<div class="glass pad stack" style="border-color:color-mix(in srgb,var(--pink) 45%,var(--edge))">
       ${agent("doflamingo", pk.dare.say, true)}<div class="minis">${pk.darePieces.map((id) => mini(S.P[id])).join("")}</div>
@@ -258,7 +260,7 @@ function ride() {
     ${warns.length ? `<div class="glass pad warn stack"><b>Ride warning</b>${warns.map((w) => `<div>${esc(w)}</div>`).join("")}</div>` : ""}
     ${!enough ? emptyCloset("ride") : busyBtn("ride-go-pick", rk ? "Pick again" : "Pick my kit")}
     ${S.busy["ride-go-pick"] ? skelFit(5) : ""}
-    ${rk && !S.busy["ride-go-pick"] ? `<div class="glass fit">${rk.cur.filter((id) => S.P[id]).map((id) => pieceBtn(S.P[id], "ride")).join("")}
+    ${rk && !S.busy["ride-go-pick"] ? `${boardHtml(rk.cur.filter((id) => S.P[id]), "ride")}<div class="glass fit">${rk.cur.filter((id) => S.P[id]).map((id) => pieceBtn(S.P[id], "ride")).join("")}
       ${rk.bag.some((id) => S.P[id]) ? `<div class="piece" style="align-content:center"><span class="t">In the bag</span><div class="minis">${rk.bag.map((id) => mini(S.P[id])).join("")}</div>
         <span class="dim small">${rk.bag.filter((id) => S.P[id]).map((id) => esc(S.P[id].name)).join(", ")}</span></div>` : ""}</div>
     <div class="glass pad"><h2>Why this kit</h2><ul class="why">${rk.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>
@@ -347,13 +349,13 @@ async function addPieces({ ride = false, hint = "", price = null, files = null }
     p.ride = !!p.rslot && (ride || !!d.ride);
     const saved = await new Promise((resolve) => {
       sheet(`<div class="eyebrow">Piece ${i + 1} of ${files.length}</div><img class="big-photo" id="f-photo" src="${p.photo}" alt="">
-        ${st ? photoChoice(true) + (st.cut ? "" : '<p class="dim small m0 center">Busy background, so the colour and framing were fixed but the background stayed. A plain background or a Photos cut-out gives the studio look.</p>') : ""}
+        ${st ? photoChoice(true) + (st.cut ? "" : '<p class="dim small m0 center">Couldn\'t separate this piece from its background (too busy, or too close in colour), so the colour was fixed but the background stayed. Shoot it on a contrasting background, or use Paste cut-out from Photos.</p>') : ""}
         ${p.note ? agent("jinwoo", p.note, true) : ""}${pieceForm(p)}
         <div class="actions"><button class="btn main" id="f-save">Save to Armory</button><button class="btn" id="f-skip">Skip</button></div>`, { onClose: () => resolve(null) });
       bindUseChips();
       let useStudio = !!st;
       bindPhotoChoice((v) => { useStudio = v; $("#f-photo").src = v ? st.photo : ph; });
-      $("#f-save").onclick = () => resolve({ ...readForm(p), photo: useStudio ? st.photo : ph, alt: st ? (useStudio ? ph : st.photo) : null, isStudio: useStudio });
+      $("#f-save").onclick = () => resolve({ ...readForm(p), photo: useStudio ? st.photo : ph, alt: st ? (useStudio ? ph : st.photo) : null, isStudio: useStudio, cutout: st?.cutout || null });
       $("#f-skip").onclick = () => resolve(false);
     });
     if (saved === null) break;
@@ -367,6 +369,50 @@ async function addPieces({ ride = false, hint = "", price = null, files = null }
   return added;
 }
 
+/* ---------- outfit boards: the whole look as one picture, built on the phone from each piece's cut-out */
+const BOARD = { cache: {}, busy: {} };
+const RIDE_TO_BOARD = { helmet: "hat", jacket: "top", pants: "bottom", boots: "shoes", gloves: "extra" };
+const isDark = () => document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : !matchMedia("(prefers-color-scheme: light)").matches;
+const boardKey = (ids, mode) => `${mode}:${isDark() ? "d" : "l"}:${ids.join(",")}:${ids.map((id) => (S.P[id]?.cutout ? 1 : 0) + (S.P[id]?.photo || "").length).join(".")}`;
+/* Which board (if any) the current screen shows. */
+function boardIds() {
+  if (S.tab === "gear" && S.pick && !S.busy.go && !S.busy.another) return [(S.dared ? S.pick.darePieces : S.pick.cur), "day"];
+  if (S.tab === "ride" && S.rpick && !S.busy["ride-go-pick"]) return [S.rpick.cur, "ride"];
+  if (S.tab === "forge") { const ids = S.forge.filter(Boolean); return ids.length >= 2 ? [ids, "day"] : null; }
+  return null;
+}
+const boardHtml = (ids, mode) => { const url = BOARD.cache[boardKey(ids, mode)];
+  return `<div class="board glass" aria-label="The whole outfit">${url ? `<img src="${url}" alt="Outfit board">` : '<div class="skel" style="aspect-ratio:4/5"></div>'}</div>`; };
+async function queueBoard() {
+  const b = boardIds(); if (!b) return;
+  const [ids, mode] = b, valid = ids.filter((id) => S.P[id]);
+  if (!valid.length) return;
+  const key = boardKey(valid, mode);
+  if (BOARD.cache[key] || BOARD.busy[key]) return;
+  BOARD.busy[key] = true;
+  try {
+    // pieces added before boards existed: make their cut-out once and keep it
+    for (const id of valid) {
+      const p = S.P[id];
+      if (!p.cutout && !p.noCutout && p.photo) {
+        const c = await cutoutFor(p.isStudio && p.alt ? p.alt : p.photo).catch(() => null);
+        await savePiece({ ...p, cutout: c, noCutout: !c });
+      }
+    }
+    const items = valid.map((id) => { const p = S.P[id]; return { slot: mode === "ride" ? RIDE_TO_BOARD[p.rslot] || "extra" : p.slot, color: p.color, cutout: p.cutout, photo: p.photo, name: p.name }; });
+    BOARD.cache[boardKey(valid, mode)] = await outfitBoard(items, { dark: isDark() });
+  } catch (e) { console.error(e); }
+  delete BOARD.busy[key];
+  render();
+}
+async function shareBoard() {
+  const b = boardIds(); if (!b) return;
+  const url = BOARD.cache[boardKey(b[0].filter((id) => S.P[id]), b[1])]; if (!url) return toast("The board is still being made.");
+  const blob = await (await fetch(url)).blob(), file = new File([blob], `bers-outfit-${ymd()}.jpg`, { type: "image/jpeg" });
+  try { if (navigator.canShare?.({ files: [file] })) return await navigator.share({ files: [file] }); } catch (e) { if (e.name === "AbortError") return; }
+  const a = document.createElement("a"); a.href = url; a.download = file.name; document.body.append(a); a.click(); a.remove();
+}
+
 /* Studio / Original switch, shared by the add sheet and the piece sheet. */
 const photoChoice = (studioOn) => `<div class="ctx" style="justify-content:center" id="ph-choice">
   <button class="chip sm ${studioOn ? "on" : ""}" data-ph="studio">Studio</button><button class="chip sm ${studioOn ? "" : "on"}" data-ph="original">Original</button></div>`;
@@ -377,7 +423,7 @@ function bindPhotoChoice(cb) {
 /* Retouch a piece already in the Armory; the old photo is kept as the alternative. */
 async function retouch(p) {
   const src = p.isStudio && p.alt ? p.alt : p.photo, st = await studio(src);
-  const q = { ...p, photo: st.photo, alt: src, isStudio: true };
+  const q = { ...p, photo: st.photo, alt: src, isStudio: true, cutout: st.cutout || p.cutout || null };
   await savePiece(q);
   return { q, cut: st.cut };
 }
@@ -424,7 +470,7 @@ function openPiece(p) {
 }
 
 /* ======================= FORGE ======================= */
-const FORGE_SLOTS = ["top", "bottom", "shoes", "extra"];
+const FORGE_SLOTS = ["hat", "top", "bottom", "shoes", "extra"];
 function forge() {
   const v = S.verdict;
   return `<section class="screen">
@@ -433,6 +479,7 @@ function forge() {
     <div class="slots">${FORGE_SLOTS.map((s, n) => { const p = S.P[S.forge[n]];
       return `<button class="slot glass" data-fslot="${n}">${p ? (p.photo ? `<img src="${p.photo}" alt="">` : `<span class="empty">${mini(p)}</span>`) : `<span class="empty">+</span>`}
         <span><span class="eyebrow">${s}</span><br><b>${p ? esc(p.name) : "Choose"}</b></span><span class="arrow">change ›</span></button>`; }).join("")}</div>
+    ${S.forge.filter(Boolean).length >= 2 ? boardHtml(S.forge.filter((id) => S.P[id]), "day") : ""}
     ${v ? `<div class="glass pad"><div class="score"><span class="num" id="guts-score" data-count="${v.score}">${shown["guts-score"] ?? 0}/10</span><span class="dim">Guts' verdict</span></div><ul class="why">${v.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}
     ${busyBtn("judge", "Ask Guts")}
     <div class="actions"><button class="btn" id="forge-save">Save to looks</button><button class="btn" id="forge-plan">Plan for a day</button></div>
@@ -519,6 +566,7 @@ function render({ enter = false } = {}) {
   }
   $$("[data-count]", view).forEach((el) => countTo(el, +el.dataset.count));
   setScene();
+  queueBoard();
 }
 
 $("#view").addEventListener("input", (e) => { if (e.target.id === "plan") S.plan = e.target.value; if (e.target.id === "seen") S.seen = e.target.value; });
@@ -566,6 +614,7 @@ $("#view").addEventListener("click", async (e) => {
       await logWear("day", ids, { occ: S.occ, seenBy: S.seen || "", plan: S.plan || "" }); render(); toast("Logged in the Chronicle");
     },
     "save-look": () => saveLook(S.dared ? S.pick.darePieces : S.pick.cur),
+    "board-save": () => shareBoard().catch(fail),
     ask: () => chatSheet(),
     add: () => addChooser(false),
     "add-ride": () => addChooser(true),

@@ -114,6 +114,9 @@ h2 { font-family: var(--display); font-size: 22px; font-weight: 400; letter-spac
 .grid .piece .ph { height: 86px; }
 .add { border: 1.5px dashed var(--accent); border-radius: 18px; color: var(--accent); font-weight: 600; display: grid; place-items: center; align-content: center; gap: 2px; min-height: 140px; }
 .add span { font-size: 32px; font-weight: 300; line-height: 1; }
+.board { padding: 0; overflow: hidden; }
+.board img, .board .skel { display: block; width: 100%; border-radius: inherit; border: 0; }
+.board img { aspect-ratio: 4 / 5; object-fit: cover; animation: fade-in var(--dur-slow) var(--ease-out); }
 .minis { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
 .minis img, .minis svg { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; background: rgba(255,255,255,.04); }
 
@@ -226,7 +229,7 @@ html[data-dir="fwd"] { --dx: -6px; } html[data-dir="back"] { --dx: 6px; }
 
 /* ---------- glass is chrome, not content: blur stays on the tab bar, header buttons, sheets and toast (4 or fewer on screen).
    Content cards keep the same fill, border, highlight and radius, without the blur. Over the soft glow the blur was invisible anyway. */
-.glass:is(.agent, .fit, .pad, .day, .slot, .tip, .gap, .piece) { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--card); }
+.glass:is(.agent, .fit, .pad, .day, .slot, .tip, .gap, .piece, .board) { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--card); }
 .sheet .glass { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--card); }
 .sheet.glass { -webkit-backdrop-filter: none; backdrop-filter: none; } /* the sheet is opaque (--bg), so its blur never showed */
 

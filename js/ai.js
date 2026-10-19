@@ -87,7 +87,7 @@ const img = (dataUrl) => ({ type: "image", source: { type: "base64", media_type:
 const S = (props, req = Object.keys(props)) => ({ type: "object", properties: props, required: req, additionalProperties: false });
 const str = { type: "string" }, strs = { type: "array", items: str }, int = { type: "integer" }, bool = { type: "boolean" };
 
-export const DAY_SLOTS = ["top", "bottom", "shoes", "layer", "extra", "scent"];
+export const DAY_SLOTS = ["top", "bottom", "shoes", "layer", "hat", "extra", "scent"];
 export const RIDE_SLOTS = ["helmet", "jacket", "gloves", "pants", "boots"];
 
 /* Closet as compact text: one line per piece. Stable order so the prompt cache hits. */
@@ -138,7 +138,7 @@ bag: 0-3 everyday ids to change into on arrival. say: Rossi's line. why: 3 reaso
     task: "pick", model: SONNET, effort: "low",
     system: [{ type: "text", text: CREW + "\nPick today's outfit from the closet.\n" + about + "\nCloset (id | name | slot | colour | fabric | formality | tags | wear history):\n" + closet, cache_control: { type: "ephemeral" } }],
     content: ctx + `
-pieces: top + bottom + shoes, plus at most one extra. Suit the occasion, the heat, and his taste.
+pieces: top + bottom + shoes, plus a hat if it suits the look, plus up to two extras (watch, chain, bag, sunglasses). Suit the occasion, the heat, and his taste.
 say: Chopper's line. why: 3 reasons.
 layer: id of a light layer to carry for strong indoor AC (malls and offices run around 21°C), or "" if not needed. layerTip: one sentence.
 scent: id of a scent piece if he has any, else "".
