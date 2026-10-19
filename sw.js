@@ -1,6 +1,6 @@
 // Offline shell: the app opens without internet (your closet is on the phone). Picks still need internet.
 // App files are network-first (updates show up on next open), with the cache as the offline fallback.
-const VERSION = "bers-v1";
+const VERSION = "bers-v2";
 const SHELL = ["./", "index.html", "styles.css", "manifest.webmanifest", "js/app.js", "js/db.js", "js/ai.js", "js/weather.js", "js/image.js",
   "icons/icon.svg", "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png"];
 

@@ -5,15 +5,27 @@
   --fg: #f4f4f5; --dim: #9d9da4; --accent: #e10600; --accent-fg: #fff; --steel: rgba(255,255,255,.35); --shadow: rgba(0,0,0,.45);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --pink: #e8408f; --warn: #f0a020; --r: 22px; color-scheme: dark;
+  --card: rgba(255,255,255,.07); --solid: rgba(22,22,26,.92);
+  /* motion: one set of tokens, used everywhere */
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-inout: cubic-bezier(.65, 0, .35, 1);
+  --ease-spring: var(--ease-out);
+  --dur-fast: 150ms; --dur-base: 250ms; --dur-slow: 400ms;
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  :root { --ease-spring: linear(0, .009, .035 2.1%, .141 4.4%, .281 6.7%, .723 12.9%, .938 16.7%, 1.017 19.2%, 1.077 22%, 1.121 25%, 1.149 29%, 1.15 32%, 1.139 36%, 1.087 44%, 1.027 55%, .999 66%, .992 78%, 1); }
 }
 @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
   --bg: #eeeef0; --glow-a: rgba(225,6,0,.16); --glow-b: rgba(120,120,130,.18);
   --glass: rgba(255,255,255,.55); --glass-2: rgba(255,255,255,.75); --edge: rgba(0,0,0,.08); --hi: rgba(255,255,255,.9);
-  --fg: #111113; --dim: #66666d; --accent: #d00500; --accent-fg: #fff; --steel: rgba(0,0,0,.28); --shadow: rgba(30,30,40,.12); color-scheme: light; } }
+  --fg: #111113; --dim: #57575e; --accent: #d00500; --accent-fg: #fff; --steel: rgba(0,0,0,.28); --shadow: rgba(30,30,40,.12); color-scheme: light;
+  --card: rgba(255,255,255,.7); --solid: rgba(255,255,255,.92); } }
 :root[data-theme="light"] {
   --bg: #eeeef0; --glow-a: rgba(225,6,0,.16); --glow-b: rgba(120,120,130,.18);
   --glass: rgba(255,255,255,.55); --glass-2: rgba(255,255,255,.75); --edge: rgba(0,0,0,.08); --hi: rgba(255,255,255,.9);
-  --fg: #111113; --dim: #66666d; --accent: #d00500; --accent-fg: #fff; --steel: rgba(0,0,0,.28); --shadow: rgba(30,30,40,.12); color-scheme: light; }
+  --fg: #111113; --dim: #57575e; --accent: #d00500; --accent-fg: #fff; --steel: rgba(0,0,0,.28); --shadow: rgba(30,30,40,.12); color-scheme: light;
+  --card: rgba(255,255,255,.7); --solid: rgba(255,255,255,.92); }
+/* light --dim is one shade darker than #66666d: on the reddest glow spot #66666d was 3.7:1, this is 4.7:1. */
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; margin: 0; }
@@ -24,16 +36,20 @@ body::before { content: ""; position: fixed; inset: -20%; z-index: -1; pointer-e
 .app { max-width: 480px; margin: 0 auto; min-height: 100%;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-top: env(safe-area-inset-top, 0px); padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px)); }
-button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
+button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; touch-action: manipulation; outline-offset: 0; transition: outline-offset var(--dur-fast) var(--ease-out); }
 button:disabled { opacity: .5; cursor: default; }
-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-a { color: inherit; }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+a { color: inherit; touch-action: manipulation; }
+p { text-wrap: pretty; } h2 { text-wrap: balance; }
 
 .glass { background: var(--glass); border: 1px solid var(--edge); border-radius: var(--r);
   -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%);
   box-shadow: inset 0 1px 0 var(--hi), 0 12px 30px var(--shadow); }
 
 header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; align-items: center; gap: 8px; padding-block: 14px 12px; }
+/* soft edge: cards slide under the header instead of cutting through it */
+header::before { content: ""; position: absolute; z-index: -1; pointer-events: none; left: -16px; right: -16px;
+  top: calc(-1 * env(safe-area-inset-top, 0px)); bottom: -18px; background: linear-gradient(var(--bg) 55%, transparent); }
 .brand { font-size: 30px; font-weight: 800; letter-spacing: -.04em; }
 .brand i { color: var(--accent); font-style: normal; }
 header .sp { flex: 1; }
@@ -50,26 +66,33 @@ h2 { font-size: 19px; font-weight: 700; letter-spacing: -.01em; margin: 0 0 10px
 
 .agent { display: grid; grid-template-columns: 46px 1fr; gap: 12px; align-items: start; padding: 14px 16px; }
 .agent.flat { padding: 0; }
-.ava { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; overflow: hidden; padding: 0;
-  background: var(--glass-2); border: 2px solid var(--ring, var(--accent)); box-shadow: 0 0 18px -4px var(--ring, var(--accent)); }
-.ava svg { width: 78%; height: 78%; } .ava img { width: 100%; height: 100%; object-fit: cover; }
-.ava.big { width: 104px; height: 104px; justify-self: center; border-width: 3px; box-shadow: 0 0 40px -6px var(--ring, var(--accent)); }
+.ava { position: relative; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; padding: 0;
+  background: var(--glass-2); border: 2px solid var(--ring, var(--accent)); }
+/* the ring glow lives on its own layer so it can pulse with opacity only */
+.ava::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; pointer-events: none;
+  box-shadow: 0 0 18px -4px var(--ring, var(--accent)); animation: glow 3.6s ease-in-out infinite alternate; }
+@keyframes glow { from { opacity: 1; } to { opacity: .45; } }
+.ava svg { width: 78%; height: 78%; } .ava img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.ava.big { width: 104px; height: 104px; justify-self: center; border-width: 3px; }
+.ava.big::after { box-shadow: 0 0 40px -6px var(--ring, var(--accent)); }
 .agent .who { font-weight: 700; } .agent .role { font-size: 13px; color: var(--dim); }
 .agent p { margin: 4px 0 0; }
 
 .ctx { display: flex; flex-wrap: wrap; gap: 8px; }
 .pill { font-size: 13px; padding: 6px 12px; border-radius: 99px; background: var(--glass); border: 1px solid var(--edge); color: var(--dim); }
 .pill b { color: var(--fg); font-weight: 600; }
-.chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 6px; scrollbar-width: none; }
+.chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 28px), transparent);
+  margin-inline: -14px; padding-inline: 14px; }
 .chips::-webkit-scrollbar { display: none; }
-.chip { flex: none; padding: 9px 16px; border-radius: 99px; background: var(--glass); border: 1px solid var(--edge); font-size: 15px; font-weight: 500; transition: background .25s, color .25s, transform .15s; }
+.chip { flex: none; padding: 9px 16px; border-radius: 99px; background: var(--glass); border: 1px solid var(--edge); font-size: 15px; font-weight: 500;
+  transition: background-color var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), transform var(--dur-slow) var(--ease-spring); }
 .chip.sm { padding: 5px 11px; font-size: 13px; }
-.chip:active { transform: scale(.96); }
 .chip.on { background: var(--accent); color: var(--accent-fg); border-color: transparent; box-shadow: 0 6px 18px -6px var(--accent); }
 
 .fit { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; }
-.piece { position: relative; background: var(--glass-2); border: 1px solid var(--edge); border-radius: 18px; padding: 8px 10px 10px; display: grid; gap: 2px; text-align: left; min-width: 0; transition: transform .2s ease; }
-.piece:active { transform: scale(.97); }
+.piece { position: relative; background: var(--glass-2); border: 1px solid var(--edge); border-radius: 18px; padding: 8px 10px 10px; display: grid; gap: 2px; text-align: left; min-width: 0;
+  transition: transform var(--dur-slow) var(--ease-spring), opacity var(--dur-base) var(--ease-out); }
 .piece .ph { width: 100%; height: 120px; border-radius: 12px; object-fit: contain; background: rgba(255,255,255,.03); }
 .piece svg.ph { padding: 10px; }
 .piece .n { font-weight: 600; font-size: 14px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
@@ -86,8 +109,8 @@ h2 { font-size: 19px; font-weight: 700; letter-spacing: -.01em; margin: 0 0 10px
 .why li { display: grid; grid-template-columns: 12px 1fr; gap: 10px; }
 .why li::before { content: ""; width: 7px; height: 7px; margin-top: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.btn { padding: 14px; border-radius: 99px; font-weight: 600; background: var(--glass); border: 1px solid var(--edge); transition: transform .15s; text-align: center; text-decoration: none; }
-.btn:active { transform: scale(.97); }
+.btn { padding: 14px; border-radius: 99px; font-weight: 600; background: var(--glass); border: 1px solid var(--edge); text-align: center; text-decoration: none;
+  transition: transform var(--dur-slow) var(--ease-spring), background-color var(--dur-base) var(--ease-out), opacity var(--dur-base) var(--ease-out); }
 .btn.main { background: var(--accent); color: var(--accent-fg); border-color: transparent; box-shadow: 0 10px 24px -10px var(--accent); }
 .btn.pink { background: var(--pink); color: #fff; border-color: transparent; box-shadow: 0 10px 24px -10px var(--pink); }
 .btn.sm { padding: 9px 16px; font-size: 14px; }
@@ -117,7 +140,8 @@ h2 { font-size: 19px; font-weight: 700; letter-spacing: -.01em; margin: 0 0 10px
 .sw.no::after { content: ""; position: absolute; left: -6%; right: -6%; top: 48%; height: 2px; background: var(--accent); transform: rotate(-45deg); }
 
 .bar { height: 8px; border-radius: 9px; background: var(--glass-2); border: 1px solid var(--edge); overflow: hidden; }
-.bar i { display: block; height: 100%; background: var(--accent); border-radius: 9px; }
+.bar i { display: block; width: 100%; height: 100%; background: var(--accent); border-radius: 9px; transform-origin: left; transform: scaleX(var(--v, 0));
+  transition: transform var(--dur-slow) var(--ease-out); }
 .warn { border-color: var(--warn); box-shadow: inset 0 1px 0 var(--hi), 0 0 0 1px var(--warn); }
 .tip { display: grid; grid-template-columns: 44px 1fr; gap: 10px; align-items: center; padding: 10px 14px; text-align: left; }
 .tip img { width: 44px; height: 44px; object-fit: contain; border-radius: 8px; }
@@ -129,25 +153,87 @@ label.lb { display: grid; gap: 6px; font-size: 13px; color: var(--dim); font-wei
 
 nav { position: fixed; left: 0; right: 0; z-index: 10; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
-nav .in { max-width: 460px; margin: 0 auto; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); padding: 6px; border-radius: 30px; }
-nav button { padding: 7px 0; border-radius: 24px; display: grid; justify-items: center; gap: 2px; color: var(--dim); font-size: 10.5px; letter-spacing: -.01em; font-weight: 600; transition: background .25s, color .25s; }
+nav .in { position: relative; max-width: 460px; margin: 0 auto; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); padding: 6px; border-radius: 30px; }
+nav button { position: relative; z-index: 1; padding: 7px 0; border-radius: 24px; display: grid; justify-items: center; gap: 2px; color: var(--dim); font-size: 10.5px; letter-spacing: -.01em; font-weight: 600;
+  transition: color var(--dur-base) var(--ease-out), transform var(--dur-slow) var(--ease-spring); }
 nav svg { width: 23px; height: 23px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
-nav button[aria-current="page"] { color: var(--accent); background: var(--glass-2); }
+nav button[aria-current="page"] { color: var(--accent); }
+/* one glass thumb that slides between tabs */
+nav .thumb { position: absolute; top: 6px; bottom: 6px; left: 6px; width: calc((100% - 12px) / 6); border-radius: 24px; background: var(--glass-2);
+  transform: translateX(calc(var(--i, 0) * 100%)); transition: transform var(--dur-slow) var(--ease-spring); }
 
-.veil { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.35); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); display: flex; align-items: flex-end; justify-content: center; }
-.sheet { width: 100%; max-width: 480px; max-height: 90%; overflow-y: auto; border-radius: 28px 28px 0 0; border-bottom: 0; background: var(--bg);
-  padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 14px; }
-.sheet::before { content: ""; justify-self: center; width: 40px; height: 5px; border-radius: 9px; background: var(--steel); }
+.veil { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.35); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); display: flex; align-items: flex-end; justify-content: center;
+  animation: fade-in 200ms var(--ease-out) both; }
+.veil.closing { animation: fade-out 200ms var(--ease-out) both; pointer-events: none; }
+.sheet { width: 100%; max-width: 480px; max-height: 90%; overflow-y: auto; overscroll-behavior: contain; border-radius: 28px 28px 0 0; border-bottom: 0; background: var(--bg);
+  padding: 0 max(16px, env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 14px;
+  animation: sheet-in var(--dur-slow) var(--ease-spring) both; transition: transform var(--dur-slow) var(--ease-spring); }
+.veil.closing .sheet { animation: sheet-out var(--dur-base) var(--ease-inout) both; }
+/* grab handle: drag down to dismiss */
+.grab { position: sticky; top: 0; z-index: 2; margin: 0 -16px; height: 26px; display: grid; place-items: center; touch-action: none; cursor: grab; background: linear-gradient(var(--bg) 60%, transparent); }
+.grab::before { content: ""; width: 40px; height: 5px; border-radius: 9px; background: var(--steel); }
+@keyframes fade-in { from { opacity: 0; } } @keyframes fade-out { to { opacity: 0; } }
+@keyframes sheet-in { from { transform: translateY(100%); } } @keyframes sheet-out { to { transform: translateY(100%); } }
 .sheet .big-photo { max-height: 280px; width: 100%; object-fit: contain; border-radius: 18px; background: rgba(255,255,255,.03); }
 .steps { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
 .bubble { padding: 12px 14px; border-radius: 18px; max-width: 88%; }
 .bubble.me { justify-self: end; background: var(--accent); color: var(--accent-fg); border-bottom-right-radius: 6px; }
 .bubble.ai { background: var(--glass-2); border: 1px solid var(--edge); border-bottom-left-radius: 6px; }
-.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(100px + env(safe-area-inset-bottom, 0px)); z-index: 30; padding: 10px 18px; border-radius: 99px; font-weight: 600; max-width: 90%; text-align: center; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(100px + env(safe-area-inset-bottom, 0px)); z-index: 30; padding: 10px 18px; border-radius: 99px; font-weight: 600; max-width: 90%; text-align: center;
+  animation: toast-in var(--dur-slow) var(--ease-spring) both; }
+.toast.out { animation: toast-out var(--dur-base) var(--ease-inout) both; }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 12px) scale(.96); } }
+@keyframes toast-out { to { opacity: 0; transform: translate(-50%, 8px) scale(.98); } }
 .spin { display: inline-block; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--steel); border-top-color: var(--accent); animation: sp .8s linear infinite; vertical-align: -3px; }
 @keyframes sp { to { transform: rotate(360deg); } }
 .loading { display: grid; place-items: center; gap: 10px; padding: 30px 16px; color: var(--dim); text-align: center; }
-@media (prefers-reduced-motion: no-preference) {
-  .screen > * { animation: rise .45s cubic-bezier(.2,.8,.2,1) both; }
-  .sheet { animation: up .35s cubic-bezier(.2,.8,.2,1); }
-  @keyframes rise { from { transform: translateY(10px); opacity: .4; } } @keyframes up { from { transform: translateY(40px); } } }
+
+/* ---------- press feedback: instant on touch, springs back on release */
+:is(.chip, .btn, .ava, .iconbtn, nav button, button.pill, button.tag):active { transform: scale(.97); transition-duration: 60ms; }
+:is(.piece, .slot, button.tip, .add):active { transform: scale(.98); transition-duration: 60ms; }
+:is(.ava, .iconbtn, button.pill, button.tag, .slot, button.tip, .add) { transition: transform var(--dur-slow) var(--ease-spring), background-color var(--dur-base) var(--ease-out); }
+
+/* ---------- tab change: entrance plays only then (the .enter class), staggered, capped at 5 */
+#view.enter .screen > * { animation: rise var(--dur-slow) var(--ease-out) both; }
+#view.enter .screen > :nth-child(2) { animation-delay: 35ms; } #view.enter .screen > :nth-child(3) { animation-delay: 70ms; }
+#view.enter .screen > :nth-child(4) { animation-delay: 105ms; } #view.enter .screen > :nth-child(n+5) { animation-delay: 140ms; }
+@keyframes rise { from { transform: translateY(10px); opacity: 0; } }
+#view { view-transition-name: bers-view; }
+::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+::view-transition-old(bers-view) { animation: vt-out var(--dur-base) var(--ease-inout) both; }
+::view-transition-new(bers-view) { animation: fade-in var(--dur-base) var(--ease-out) both; }
+html[data-dir="fwd"] { --dx: -6px; } html[data-dir="back"] { --dx: 6px; }
+@keyframes vt-out { to { opacity: 0; transform: translateX(var(--dx, -6px)); } }
+
+/* ---------- skeletons: a soft sweep in the glass colour while something loads */
+.skel { position: relative; overflow: hidden; color: transparent !important; background: var(--glass); border: 1px solid var(--edge); }
+.skel::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); animation: sweep 1.3s var(--ease-inout) infinite;
+  background: linear-gradient(90deg, transparent, var(--glass-2), transparent); }
+@keyframes sweep { to { transform: translateX(100%); } }
+.piece.skel { min-height: 170px; } .pill.skel { min-width: 150px; }
+
+/* ---------- glass is chrome, not content: blur stays on the tab bar, header buttons, sheets and toast (4 or fewer on screen).
+   Content cards keep the same fill, border, highlight and radius, without the blur. Over the soft glow the blur was invisible anyway. */
+.glass:is(.agent, .fit, .pad, .day, .slot, .tip, .gap, .piece) { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--card); }
+.sheet .glass { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--card); }
+.sheet.glass { -webkit-backdrop-filter: none; backdrop-filter: none; } /* the sheet is opaque (--bg), so its blur never showed */
+
+/* ---------- fallbacks and accessibility */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .glass, .sheet { background: var(--solid); } }
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .sheet, .veil { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+  .glass, .sheet { background: var(--solid) !important; }
+}
+@media (prefers-contrast: more) { :root { --edge: rgba(255,255,255,.35); } :root[data-theme="light"] { --edge: rgba(0,0,0,.35); } }
+@media (prefers-contrast: more) and (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --edge: rgba(0,0,0,.35); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-property: opacity, color, background-color, border-color !important; transition-duration: var(--dur-fast) !important; }
+  :is(.chip, .btn, .ava, .iconbtn, nav button, button.pill, button.tag, .piece, .slot, button.tip, .add):active { transform: none; }
+  .ava::after, .skel::after, .spin { animation: none; }
+  #view.enter .screen > * { animation: fade-in var(--dur-fast) linear both; animation-delay: 0s !important; }
+  .sheet { animation: fade-in var(--dur-fast) linear both; } .veil.closing .sheet { animation: fade-out var(--dur-fast) linear both; }
+  .toast { animation: fade-in var(--dur-fast) linear both; } .toast.out { animation: fade-out var(--dur-fast) linear both; }
+  ::view-transition-old(bers-view), ::view-transition-new(bers-view) { animation-duration: var(--dur-fast); }
+  @keyframes vt-out { to { opacity: 0; } }
+  nav .thumb, .bar i { transition-duration: 0s !important; }
+}

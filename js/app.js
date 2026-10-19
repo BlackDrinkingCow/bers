@@ -69,13 +69,64 @@ const historyText = () => S.log.filter((l) => l.kind !== "buy" && l.kind !== "pl
   .map((l) => `${l.date} | ${l.occ || l.kind} | ${l.seenBy || "-"} | ${(l.pieces || []).map((id) => S.P[id]?.name || "?").join(", ")} | ${l.rating || "-"}`).join("\n");
 
 /* ---------- small UI helpers */
-function toast(msg) { const t = document.createElement("div"); t.className = "toast glass"; t.textContent = msg; document.body.append(t); setTimeout(() => t.remove(), 2600); }
-function sheet(html, { onClose } = {}) {
-  $("#layer").innerHTML = `<div class="veil" id="veil"><div class="sheet glass" role="dialog" aria-modal="true">${html}<button class="btn" id="close">Close</button></div></div>`;
-  $("#veil").onclick = (e) => { if (e.target.id === "veil" || e.target.id === "close") { closeSheet(); onClose?.(); } };
-  return $("#layer .sheet");
+const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+function toast(msg) {
+  $$(".toast").forEach((t) => t.remove());
+  const t = document.createElement("div"); t.className = "toast glass"; t.textContent = msg; document.body.append(t);
+  setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 260); }, 2400);
 }
-const closeSheet = () => ($("#layer").innerHTML = "");
+let onSheetClose = null;
+function sheet(html, { onClose } = {}) {
+  onSheetClose = onClose || null;
+  $("#layer").innerHTML = `<div class="veil" id="veil"><div class="sheet glass" role="dialog" aria-modal="true"><div class="grab" aria-hidden="true"></div>${html}<button class="btn" id="close">Close</button></div></div>`;
+  $("#veil").onclick = (e) => { if (e.target.id === "veil" || e.target.id === "close") dismissSheet(); };
+  const sh = $("#layer .sheet");
+  dragToDismiss(sh);
+  return sh;
+}
+/* Closing animates out (sheet slides down, veil fades), then the layer is cleared. */
+function closeSheet() {
+  onSheetClose = null;
+  const v = $("#veil");
+  if (!v || v.classList.contains("closing")) return;
+  v.classList.add("closing");
+  setTimeout(() => v.remove(), reduced() ? 160 : 260);
+}
+function dismissSheet() { const cb = onSheetClose; closeSheet(); cb?.(); }
+function dragToDismiss(sh) {
+  const grab = sh.querySelector(".grab");
+  let y0 = null, dy = 0, t0 = 0;
+  grab.onpointerdown = (e) => { y0 = e.clientY; dy = 0; t0 = performance.now(); sh.style.willChange = "transform"; sh.style.transition = "none"; try { grab.setPointerCapture(e.pointerId); } catch {} };
+  grab.onpointermove = (e) => { if (y0 === null) return; dy = Math.max(0, e.clientY - y0); sh.style.transform = `translateY(${dy}px)`; };
+  grab.onpointerup = grab.onpointercancel = () => {
+    if (y0 === null) return;
+    const speed = dy / Math.max(1, performance.now() - t0); y0 = null;
+    sh.style.transition = ""; sh.style.willChange = "";
+    if (dy > 110 || (dy > 30 && speed > 0.6)) dismissSheet(); else sh.style.transform = "";
+  };
+}
+/* Patch the live DOM to match new markup, so elements stay put: classes transition, photos don't reload, nothing replays. */
+function morph(a, b) {
+  if (a.nodeType !== b.nodeType || a.nodeName !== b.nodeName) { a.replaceWith(b); return; }
+  if (a.nodeType !== 1) { if (a.nodeValue !== b.nodeValue) a.nodeValue = b.nodeValue; return; }
+  for (const { name } of [...a.attributes]) if (!b.hasAttribute(name)) a.removeAttribute(name);
+  for (const { name, value } of [...b.attributes]) if (a.getAttribute(name) !== value) a.setAttribute(name, value);
+  if ((a.tagName === "INPUT" || a.tagName === "TEXTAREA") && document.activeElement !== a && a.value !== b.value) a.value = b.value;
+  const ac = [...a.childNodes], bc = [...b.childNodes];
+  bc.forEach((n, i) => (i < ac.length ? morph(ac[i], n) : a.appendChild(n)));
+  for (let i = bc.length; i < ac.length; i++) ac[i].remove();
+}
+/* Count a number up or down to its new value (Forge score). */
+const shown = {};  // last value displayed per counter id, so re-renders don't restart the count
+function countTo(el, to) {
+  const from = shown[el.id] ?? 0;
+  if (from === to) return;
+  shown[el.id] = to;
+  if (reduced()) { el.textContent = `${to}/10`; return; }
+  const t0 = performance.now(), d = 400;
+  const step = (t) => { const k = Math.min(1, (t - t0) / d), e = 1 - Math.pow(1 - k, 3); el.textContent = `${Math.round(from + (to - from) * e)}/10`; if (k < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
 function fail(e) { console.error(e); toast(e.message || "Something went wrong."); if (e.code === "nokey") openSettings(); }
 
 const avatar = (k, big) => { const pic = S.crewPics[k];
@@ -108,13 +159,31 @@ const TABS = [
   ["hoard", "Hoard", '<path d="M4 10h16l-1.5 10h-13zM8 10V7a4 4 0 0 1 8 0v3"/>'],
   ["ride", "Ride", '<circle cx="5.5" cy="16" r="3.5"/><circle cx="18.5" cy="16" r="3.5"/><path d="M5.5 16l4-6h5l4 6M9.5 10l2.5 6h2M14 7h3l1.5 3"/>'],
 ];
+const TAB_IDS = TABS.map((t) => t[0]);
+// The tab bar is built once; only the current marker and the sliding thumb change.
+$("#tabs").innerHTML = '<span class="thumb" aria-hidden="true"></span>' +
+  TABS.map(([id, label, ic]) => `<button data-tab="${id}"><svg viewBox="0 0 24 24">${ic}</svg><span>${label}</span></button>`).join("");
 function renderTabs() {
-  $("#tabs").innerHTML = TABS.map(([id, label, ic]) => `<button data-tab="${id}" ${S.tab === id ? 'aria-current="page"' : ""}><svg viewBox="0 0 24 24">${ic}</svg><span>${label}</span></button>`).join("");
+  $$("#tabs [data-tab]").forEach((b) => (b.dataset.tab === S.tab ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current")));
+  $("#tabs").style.setProperty("--i", TAB_IDS.indexOf(S.tab));
 }
-$("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) { S.tab = b.dataset.tab; render(); scrollTo({ top: 0, behavior: "smooth" }); } };
+function goTab(tab) {
+  if (tab === S.tab) return scrollTo({ top: 0, behavior: reduced() ? "auto" : "smooth" });
+  document.documentElement.dataset.dir = TAB_IDS.indexOf(tab) > TAB_IDS.indexOf(S.tab) ? "fwd" : "back";
+  S.tab = tab; renderTabs();
+  let done = false;
+  const swap = () => { if (done) return; done = true; scrollTo(0, 0); render({ enter: true }); };
+  if (!document.startViewTransition) return swap();
+  const vt = document.startViewTransition(swap);
+  // Safety net: if the browser isn't drawing frames (backgrounded), switch without the transition.
+  setTimeout(() => { if (!done) { swap(); vt.skipTransition?.(); } }, 250);
+}
+$("#tabs").onclick = (e) => { const b = e.target.closest("[data-tab]"); if (b) goTab(b.dataset.tab); };
 
 /* ======================= GEAR UP ======================= */
-const weatherPill = () => `<button class="pill" id="weather">${S.weather ? `${esc(S.weather.place)} <b>${S.weather.temp}° · ${S.weather.humidity}%</b> · live` : "Weather <b>tap to load</b>"}</button>`;
+const weatherPill = () => S.weather ? `<button class="pill" id="weather">${esc(S.weather.place)} <b>${S.weather.temp}° · ${S.weather.humidity}%</b> · live</button>`
+  : S.weatherFailed ? `<button class="pill" id="weather">Weather <b>tap to load</b></button>` : `<span class="pill skel">Loading weather</span>`;
+const skelFit = (n = 4) => `<div class="glass fit" aria-busy="true">${'<div class="piece skel"></div>'.repeat(n)}</div>`;
 function emptyCloset(mode) {
   const need = mode === "ride" ? "a helmet, a jacket and gloves tagged Ride" : "at least a top, a bottom and shoes";
   return `<div class="glass pad stack"><b>Your Armory needs ${need}.</b><span class="dim">Add photos and Chopper describes each piece. Then the crew can start picking.</span>
@@ -137,8 +206,9 @@ function gear() {
       <label class="lb">Who'll see you<input class="field" id="seen" placeholder="Lulu Mushrif manager, Spinneys Al Reem" value="${esc(S.seen || "")}"></label>
       ${busyBtn("go", pk ? "Pick again with this plan" : "Gear me up")}
     </div>`}
+    ${(S.busy.go || S.busy.another) && !pk ? skelFit() : ""}
     ${pk ? `
-    <div class="glass fit">${ids.filter((id) => S.P[id]).map((id) => pieceBtn(S.P[id])).join("")}</div>
+    ${S.busy.go || S.busy.another ? skelFit() : `<div class="glass fit">${ids.filter((id) => S.P[id]).map((id) => pieceBtn(S.P[id])).join("")}</div>`}
     ${pk.repeat ? agent("rogue", pk.repeat) : ""}
     ${pk.layer && S.P[pk.layer] ? `<div class="glass tip">${mini(S.P[pk.layer])}<span><b>AC layer.</b> <span class="dim">${esc(pk.layerTip || "Carry it for the cold malls.")}</span></span></div>` : ""}
     <div class="glass pad"><h2>${d ? "Why the dare works" : "Why this works"}</h2><ul class="why">${(d ? pk.dare.why : pk.why).map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>
@@ -184,7 +254,8 @@ function ride() {
     <div class="chips">${Object.entries(RIDES).map(([k, r]) => `<button class="chip ${k === S.ride ? "on" : ""}" data-ride="${k}">${r.label}</button>`).join("")}</div>
     ${warns.length ? `<div class="glass pad warn stack"><b>Ride warning</b>${warns.map((w) => `<div>${esc(w)}</div>`).join("")}</div>` : ""}
     ${!enough ? emptyCloset("ride") : busyBtn("ride-go-pick", rk ? "Pick again" : "Pick my kit")}
-    ${rk ? `<div class="glass fit">${rk.cur.filter((id) => S.P[id]).map((id) => pieceBtn(S.P[id], "ride")).join("")}
+    ${S.busy["ride-go-pick"] ? skelFit(5) : ""}
+    ${rk && !S.busy["ride-go-pick"] ? `<div class="glass fit">${rk.cur.filter((id) => S.P[id]).map((id) => pieceBtn(S.P[id], "ride")).join("")}
       ${rk.bag.some((id) => S.P[id]) ? `<div class="piece" style="align-content:center"><span class="t">In the bag</span><div class="minis">${rk.bag.map((id) => mini(S.P[id])).join("")}</div>
         <span class="dim small">${rk.bag.filter((id) => S.P[id]).map((id) => esc(S.P[id].name)).join(", ")}</span></div>` : ""}</div>
     <div class="glass pad"><h2>Why this kit</h2><ul class="why">${rk.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>
@@ -316,7 +387,7 @@ function forge() {
     <div class="slots">${FORGE_SLOTS.map((s, n) => { const p = S.P[S.forge[n]];
       return `<button class="slot glass" data-fslot="${n}">${p ? (p.photo ? `<img src="${p.photo}" alt="">` : `<span class="empty">${mini(p)}</span>`) : `<span class="empty">+</span>`}
         <span><span class="eyebrow">${s}</span><br><b>${p ? esc(p.name) : "Choose"}</b></span><span class="arrow">change ›</span></button>`; }).join("")}</div>
-    ${v ? `<div class="glass pad"><div class="score"><span class="num">${v.score}/10</span><span class="dim">Guts' verdict</span></div><ul class="why">${v.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}
+    ${v ? `<div class="glass pad"><div class="score"><span class="num" id="guts-score" data-count="${v.score}">${shown["guts-score"] ?? 0}/10</span><span class="dim">Guts' verdict</span></div><ul class="why">${v.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}
     ${busyBtn("judge", "Ask Guts")}
     <div class="actions"><button class="btn" id="forge-save">Save to looks</button><button class="btn" id="forge-plan">Plan for a day</button></div>
     ${busyBtn("fitcheck", "Fit check · mirror selfie", "btn")}
@@ -371,11 +442,12 @@ function hoard() {
   return `<section class="screen">
     <div><div class="eyebrow">Gaps in your closet · under AED ${S.budgetItem || 200} each</div><h1>Hoard</h1></div>
     <div class="glass pad stack"><div class="row"><b>${new Date().toLocaleDateString("en-GB", { month: "long" })} budget</b><span><b>AED ${spent}</b> <span class="dim">of ${budget}</span></span></div>
-      <div class="bar"><i style="width:${Math.min(100, (spent / budget) * 100)}%"></i></div>
+      <div class="bar"><i style="--v:${Math.min(1, spent / budget).toFixed(3)}"></i></div>
       <span class="dim small">Logged when you tap Bought it. Change the budget in Settings.</span></div>
     ${agent("blackbeard", g ? g.say : "Zehahaha! Let me dig through your closet for holes.")}
     ${busyBtn("gaps", g ? "Look again" : "Find what's missing")}
-    ${g ? g.gaps.map((x, n) => `<div class="glass pad gap"><div class="sw" style="background:${esc(x.color)};border-radius:14px"></div><div>
+    ${S.busy.gaps ? '<div class="glass pad skel" style="min-height:120px"></div>'.repeat(3) : ""}
+    ${g && !S.busy.gaps ? g.gaps.map((x, n) => `<div class="glass pad gap"><div class="sw" style="background:${esc(x.color)};border-radius:14px"></div><div>
       <b>${esc(x.name)}</b> <span class="price">${esc(x.price)}</span><div class="dim">${esc(x.why)}</div>
       <div class="ctx" style="margin-top:8px">${x.shops.map((s) => `<span class="tag">${esc(s)}</span>`).join("")}${x.size ? `<span class="tag">Your size: ${esc(x.size)}</span>` : ""}</div>
       <div class="ctx" style="margin-top:10px"><a class="btn sm" target="_blank" rel="noopener" href="https://www.google.com/search?tbm=shop&q=${encodeURIComponent(x.name + " UAE")}">Search prices</a>
@@ -385,11 +457,21 @@ function hoard() {
 }
 
 /* ======================= render + events ======================= */
-function render() {
+/* enter: a new tab, so build it fresh and play the entrance. Otherwise patch the screen in place. */
+let enterTimer = 0;
+function render({ enter = false } = {}) {
   renderTabs();
-  const y = scrollY;
-  $("#view").innerHTML = { gear, armory, forge, chronicle, hoard, ride }[S.tab]();
-  scrollTo(0, y);
+  const view = $("#view"), html = { gear, armory, forge, chronicle, hoard, ride }[S.tab]();
+  if (enter || !view.firstElementChild) {
+    view.innerHTML = html;
+    view.classList.add("enter"); clearTimeout(enterTimer);
+    enterTimer = setTimeout(() => view.classList.remove("enter"), 700);
+  } else {
+    const tpl = document.createElement("template"); tpl.innerHTML = html;
+    if (view.childNodes.length === tpl.content.childNodes.length) [...tpl.content.childNodes].forEach((n, i) => morph(view.childNodes[i], n));
+    else view.replaceChildren(tpl.content);
+  }
+  $$("[data-count]", view).forEach((el) => countTo(el, +el.dataset.count));
 }
 
 $("#view").addEventListener("input", (e) => { if (e.target.id === "plan") S.plan = e.target.value; if (e.target.id === "seen") S.seen = e.target.value; });
@@ -440,7 +522,7 @@ $("#view").addEventListener("click", async (e) => {
     ask: () => chatSheet(),
     add: () => addPieces(),
     "add-ride": () => addPieces({ ride: true }),
-    "ride-locker": () => { S.tab = "armory"; S.filter = "ride"; render(); scrollTo({ top: 0 }); },
+    "ride-locker": () => { S.filter = "ride"; goTab("armory"); },
     "ride-go-pick": () => busy("ride-go-pick", runRide),
     "ride-go": () => afterRide(),
     "ride-check": () => sheet(`<div class="eyebrow">Rossi's pre-ride check</div><h2>Before you go</h2>
@@ -514,22 +596,25 @@ function planDay(ids) {
 }
 
 function chatSheet() {
+  // The sheet opens once; new messages are drawn inside it (no slide-in replay per message).
+  const box = sheet(`<div class="eyebrow">Chat</div><h2 class="m0">Ask Chopper</h2><div class="stack" id="msgs"></div>
+    <div class="two" style="grid-template-columns:1fr auto"><input class="field" id="q" placeholder="Make it more formal, I have a meeting at 3"><button class="btn main" id="q-go">Ask</button></div>`);
   const draw = () => {
-    const box = sheet(`<div class="eyebrow">Chat</div><h2 class="m0">Ask Chopper</h2>
-      ${S.chat.map((m) => `<div class="bubble ${m.who === "Him" ? "me" : "ai"}">${esc(m.text)}</div>`).join("")}
-      <div class="two" style="grid-template-columns:1fr auto"><input class="field" id="q" placeholder="Make it more formal, I have a meeting at 3"><button class="btn main" id="q-go">Ask</button></div>`);
+    $("#msgs").innerHTML = S.chat.map((m) => m.text === "…" ? '<div class="bubble ai skel" style="width:60%">…</div>'
+      : `<div class="bubble ${m.who === "Him" ? "me" : "ai"}">${esc(m.text)}</div>`).join("");
     box.scrollTop = box.scrollHeight;
-    const send = async () => {
-      const q = $("#q").value.trim(); if (!q) return;
-      S.chat.push({ who: "Him", text: q }); S.chat.push({ who: "Chopper", text: "…" }); draw();
-      try {
-        const ans = await ai.askChopper({ question: q, outfit: (S.dared ? S.pick.darePieces : S.pick.cur).map((id) => S.P[id]), pieces: S.pieces, profile: await profile(), history: S.chat.slice(-8, -2) });
-        S.chat[S.chat.length - 1].text = ans;
-      } catch (e) { S.chat.pop(); S.chat.pop(); fail(e); }
-      draw();
-    };
-    $("#q-go").onclick = send; $("#q").onkeydown = (e) => { if (e.key === "Enter") send(); };
   };
+  const send = async () => {
+    const q = $("#q").value.trim(); if (!q) return;
+    $("#q").value = "";
+    S.chat.push({ who: "Him", text: q }); S.chat.push({ who: "Chopper", text: "…" }); draw();
+    try {
+      const ans = await ai.askChopper({ question: q, outfit: (S.dared ? S.pick.darePieces : S.pick.cur).map((id) => S.P[id]), pieces: S.pieces, profile: await profile(), history: S.chat.slice(-8, -2) });
+      S.chat[S.chat.length - 1].text = ans;
+    } catch (e) { S.chat.pop(); S.chat.pop(); fail(e); }
+    if ($("#msgs")) draw();
+  };
+  $("#q-go").onclick = send; $("#q").onkeydown = (e) => { if (e.key === "Enter") send(); };
   draw();
 }
 
@@ -627,7 +712,7 @@ async function openSettings() {
     ${key ? '<button class="btn" id="s-key-del">Remove key from this phone</button>' : ""}
     <h2 class="m0">Spend meter</h2>
     <div class="row"><span>${new Date().toLocaleDateString("en-GB", { month: "long" })} so far · ${u.calls} calls</span><span><b>$${u.usd.toFixed(2)}</b> <span class="dim">of $${cap}</span></span></div>
-    <div class="bar"><i style="width:${Math.min(100, (u.usd / cap) * 100)}%"></i></div>
+    <div class="bar"><i style="--v:${Math.min(1, u.usd / cap).toFixed(3)}"></i></div>
     <label class="lb">Monthly cap in Bers (USD)<input class="field" id="s-cap" inputmode="decimal" value="${cap}"></label>
     <p class="dim m0 small">Haiku describes photos and runs Guts' verdicts; Sonnet handles picks, chat and photo judgements. Picks are saved per day, so reopening the app costs nothing.</p>
     <h2 class="m0">Clothing budget</h2>
@@ -723,8 +808,8 @@ async function boot() {
   S.gaps = await db.kv.get("gaps", null);
   S.budgetMonth = await db.kv.get("budgetMonth", 600); S.budgetItem = await db.kv.get("budgetItem", 200);
   S.sinceBackup = await db.kv.get("sinceBackup", 0);
-  render();
-  wx.today().then((w) => { S.weather = w; render(); }).catch(() => {});
+  render({ enter: true });
+  wx.today().then((w) => { S.weather = w; render(); }).catch(() => { S.weatherFailed = true; render(); });
 }
 boot().catch(fail);
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("sw.js").catch(() => {});
