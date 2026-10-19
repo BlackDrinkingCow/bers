@@ -2,7 +2,8 @@
 import * as db from "./db.js";
 import * as ai from "./ai.js";
 import * as wx from "./weather.js";
-import { fileToDataUrl, squareAvatar, pickPhotos, studio, pasteImage, outfitBoard, cutoutFor } from "./image.js";
+import { fileToDataUrl, squareAvatar, pickPhotos, studio, pasteImage, outfitBoard, cutoutFor, aiCutout } from "./image.js";
+const STUDIO_V = 2;  // bump when the studio look changes; pieces below it get offered a re-shoot
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -290,6 +291,8 @@ function armory() {
     <div><div class="eyebrow">${S.pieces.length} pieces</div><h1>Armory</h1></div>
     ${agent("jinwoo", S.pieces.length ? `Inventory: ${S.pieces.length} item${S.pieces.length > 1 ? "s" : ""}. Bring me something new and I'll appraise it.` : "Your inventory is empty. Bring me your gear. I'll take it from there.")}
     ${since >= 10 ? `<button class="glass tip warn" id="backup-nudge"><span style="font-size:28px;text-align:center">⤓</span><span><b>${since} new pieces since your last backup.</b> <span class="dim">Tap to save a backup to iCloud Drive.</span></span></button>` : ""}
+    ${needsStudio().length ? `<button class="glass tip" id="studio-all" ${S.busy.studio ? "disabled" : ""}><span style="font-size:26px;text-align:center">✦</span><span><b>${S.busy.studio ? esc(S.busy.studio) : `Give ${needsStudio().length} piece${needsStudio().length > 1 ? "s" : ""} the studio look`}</b>
+      <span class="dim">${S.busy.studio ? "Keep Bers open." : "AI cut-out and a studio backdrop, done on this phone. The first time downloads a 42 MB model."}</span></span></button>` : ""}
     ${unworn.length ? `<button class="glass tip" id="unworn">${mini(unworn[0])}<span><b>${unworn.length} item${unworn.length > 1 ? "s" : ""} sitting unused.</b> <span class="dim">Use them, or let them go. Sell or donate.</span></span></button>` : ""}
     <div class="chips">${slots.map((s) => `<button class="chip ${s === f ? "on" : ""}" data-filter="${s}">${s === "all" ? "Everything" : s === "wash" ? `In the wash · ${S.pieces.filter((p) => p.wash).length}` : s[0].toUpperCase() + s.slice(1)}</button>`).join("")}</div>
     <div class="grid"><button class="add" id="add"><span>+</span>Add pieces</button>${list.map((p) => pieceBtn(p)).join("")}</div>
@@ -337,7 +340,11 @@ async function addPieces({ ride = false, hint = "", price = null, files = null }
     sheet(`<div class="loading"><span class="spin"></span>${S.studioOn ? "Retouching and appraising" : "Jin-Woo is appraising"} item ${i + 1} of ${files.length}…</div>`);
     let ph, st = null, d = {};
     try { ph = await fileToDataUrl(files[i]); } catch (e) { toast(e.message); continue; }
-    if (S.studioOn) { try { st = await studio(files[i]); } catch (e) { console.error(e); } }
+    if (S.studioOn) {
+      aiCutout.progress = (f) => { const el = $("#layer .loading"); if (el) el.innerHTML = `<span class="spin"></span>Downloading the cut-out model, one time only: ${Math.round(f * 100)}%<br><span class="small">About 42 MB. Wi-Fi recommended.</span>`; };
+      try { st = await studio(files[i]); } catch (e) { console.error(e); }
+      aiCutout.progress = null;
+    }
     try { d = await ai.describePiece(st ? st.photo : ph, hint); }
     catch (e) { toast(e.code === "nokey" ? "No API key yet: fill it in yourself, or add your key in Settings." : e.message); }
     // photo = the version shown; alt = the other one, so you can switch any time
@@ -355,7 +362,8 @@ async function addPieces({ ride = false, hint = "", price = null, files = null }
       bindUseChips();
       let useStudio = !!st;
       bindPhotoChoice((v) => { useStudio = v; $("#f-photo").src = v ? st.photo : ph; });
-      $("#f-save").onclick = () => resolve({ ...readForm(p), photo: useStudio ? st.photo : ph, alt: st ? (useStudio ? ph : st.photo) : null, isStudio: useStudio, cutout: st?.cutout || null });
+      $("#f-save").onclick = () => resolve({ ...readForm(p), photo: useStudio ? st.photo : ph, alt: st ? (useStudio ? ph : st.photo) : null, isStudio: useStudio,
+        studioV: st ? STUDIO_V : 0, cutout: st?.cutout || null });
       $("#f-skip").onclick = () => resolve(false);
     });
     if (saved === null) break;
@@ -373,7 +381,7 @@ async function addPieces({ ride = false, hint = "", price = null, files = null }
 const BOARD = { cache: {}, busy: {} };
 const RIDE_TO_BOARD = { helmet: "hat", jacket: "top", pants: "bottom", boots: "shoes", gloves: "extra" };
 const isDark = () => document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : !matchMedia("(prefers-color-scheme: light)").matches;
-const boardKey = (ids, mode) => `${mode}:${isDark() ? "d" : "l"}:${ids.join(",")}:${ids.map((id) => (S.P[id]?.cutout ? 1 : 0) + (S.P[id]?.photo || "").length).join(".")}`;
+const boardKey = (ids, mode) => `${mode}:${ids.join(",")}:${ids.map((id) => (S.P[id]?.cutout ? 1 : 0) + (S.P[id]?.photo || "").length).join(".")}`;
 /* Which board (if any) the current screen shows. */
 function boardIds() {
   if (S.tab === "gear" && S.pick && !S.busy.go && !S.busy.another) return [(S.dared ? S.pick.darePieces : S.pick.cur), "day"];
@@ -400,7 +408,7 @@ async function queueBoard() {
       }
     }
     const items = valid.map((id) => { const p = S.P[id]; return { slot: mode === "ride" ? RIDE_TO_BOARD[p.rslot] || "extra" : p.slot, color: p.color, cutout: p.cutout, photo: p.photo, name: p.name }; });
-    BOARD.cache[boardKey(valid, mode)] = await outfitBoard(items, { dark: isDark() });
+    BOARD.cache[boardKey(valid, mode)] = await outfitBoard(items);
   } catch (e) { console.error(e); }
   delete BOARD.busy[key];
   render();
@@ -420,10 +428,24 @@ function bindPhotoChoice(cb) {
   $("#ph-choice").onclick = (e) => { const c = e.target.closest("[data-ph]"); if (!c) return;
     $$("#ph-choice .chip").forEach((b) => b.classList.toggle("on", b === c)); cb(c.dataset.ph === "studio"); };
 }
+const needsStudio = () => S.pieces.filter((p) => p.photo && (p.studioV || 0) < STUDIO_V && !p.keepOriginal);
+/* Give every piece the current studio look, one by one, showing progress on the Armory banner. */
+async function studioAll() {
+  const list = needsStudio(); if (!list.length || S.busy.studio) return;
+  let n = 0;
+  aiCutout.progress = (f) => { S.busy.studio = `Downloading the cut-out model (one time): ${Math.round(f * 100)}%`; render(); };
+  for (const p of list) {
+    S.busy.studio = `Retouching ${++n} of ${list.length}…`; render();
+    try { await retouch(S.P[p.id] || p); } catch (e) { console.error(e); }
+  }
+  aiCutout.progress = null; S.busy.studio = false;
+  await loadData(); render(); toast(`[System] ${list.length} item${list.length > 1 ? "s" : ""} given the studio look`);
+}
+
 /* Retouch a piece already in the Armory; the old photo is kept as the alternative. */
 async function retouch(p) {
   const src = p.isStudio && p.alt ? p.alt : p.photo, st = await studio(src);
-  const q = { ...p, photo: st.photo, alt: src, isStudio: true, cutout: st.cutout || p.cutout || null };
+  const q = { ...p, photo: st.photo, alt: src, isStudio: true, studioV: STUDIO_V, cutout: st.cutout || p.cutout || null, noCutout: !st.cutout && !p.cutout };
   await savePiece(q);
   return { q, cut: st.cut };
 }
@@ -453,7 +475,7 @@ function openPiece(p) {
   bindUseChips();
   if (p.alt) bindPhotoChoice(async (studioWanted) => {
     if (studioWanted === !!p.isStudio) return;
-    p = { ...p, photo: p.alt, alt: p.photo, isStudio: studioWanted };
+    p = { ...p, photo: p.alt, alt: p.photo, isStudio: studioWanted, keepOriginal: !studioWanted };
     await savePiece(p); $("#p-photo").src = p.photo; render();
   });
   if ($("#p-retouch")) $("#p-retouch").onclick = async () => {
@@ -624,6 +646,7 @@ $("#view").addEventListener("click", async (e) => {
     "ride-check": () => sheet(`<div class="eyebrow">Rossi's pre-ride check</div><h2>Before you go</h2>
       <ol class="steps"><li>Visor clean. Tinted by day, clear after dark.</li><li>Every zip and wrist strap closed.</li>
       <li>Armour in place: shoulders, elbows, back, knees.</li><li>Boots laced, no loose laces near the chain.</li><li>Water, if it's over 30°.</li><li>Tyres and chain: a quick look.</li></ol>`),
+    "studio-all": () => studioAll(),
     unworn: () => { const list = S.pieces.filter(isUnworn); choosePiece("Not worn in a long time · tap to edit", list, openPiece); },
     "backup-nudge": () => doBackup(),
     judge: () => busy("judge", async () => {
@@ -859,7 +882,7 @@ async function openSettings() {
     <h2 class="m0">Studio photos</h2>
     <div class="ctx" id="s-studio"><button class="chip ${S.studioOn ? "on" : ""}" data-studio="1">On</button><button class="chip ${S.studioOn ? "" : "on"}" data-studio="0">Off</button></div>
     <p class="dim m0 small">On: every new piece is cut out, colour-corrected and set on a clean studio backdrop, on this phone. You can switch any piece back to its original.</p>
-    ${S.pieces.some((p) => p.photo && !p.isStudio) ? `<button class="btn" id="s-retouch-all">Retouch my ${S.pieces.filter((p) => p.photo && !p.isStudio).length} existing pieces</button>` : ""}
+    ${needsStudio().length ? `<button class="btn" id="s-retouch-all">Give my ${needsStudio().length} existing pieces the studio look</button>` : ""}
     <h2 class="m0">Backgrounds</h2>
     <p class="dim m0 small">Pick a photo for any tab. Tabs without one keep the plain look. Photos stay on this phone and are darkened so text stays readable.</p>
     <div class="stack" id="s-bgs">${bgRows()}</div>
@@ -900,12 +923,7 @@ async function openSettings() {
     S.studioOn = c.dataset.studio === "1"; await db.kv.set("studio", S.studioOn);
     $$("#s-studio .chip").forEach((b) => b.classList.toggle("on", b === c));
   };
-  if ($("#s-retouch-all")) $("#s-retouch-all").onclick = async () => {
-    const list = S.pieces.filter((p) => p.photo && !p.isStudio), b = $("#s-retouch-all");
-    b.disabled = true; let n = 0;
-    for (const p of list) { b.innerHTML = `<span class="spin"></span> Retouching ${++n} of ${list.length}…`; try { await retouch(p); } catch (e) { console.error(e); } }
-    await loadData(); render(); b.textContent = "Done"; toast(`[System] ${list.length} item${list.length > 1 ? "s" : ""} retouched`);
-  };
+  if ($("#s-retouch-all")) $("#s-retouch-all").onclick = () => { closeSheet(); S.filter = "all"; goTab("armory"); studioAll(); };
   const saveBg = async (tabs, pic) => {
     tabs.forEach((t) => (pic ? (BG.pics[t] = pic) : delete BG.pics[t]));
     await db.kv.set("bgPics", BG.pics);

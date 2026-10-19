@@ -189,21 +189,63 @@ function sharpen(d, W, H, amount = 0.45) {
   }
 }
 
-/* Centre the piece on a light studio sweep with a soft drop shadow and a contact shadow. */
-function compose(cv, alpha, W, H, cut) {
-  const S = 1000, out = canvas(S, S), g = out.getContext("2d");
-  if (!cut) {  // no clean cut-out: keep the scene, just square it up
-    const s = Math.min(W, H);
-    g.drawImage(cv, (W - s) / 2, (H - s) / 2, s, s, 0, 0, S, S);
+/* ---------- the studio cove (from Karim's reference): a tinted wall softly blurring into a light floor */
+function rgbToHsl([r, g, b]) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+  if (mx === mn) return [0, 0, l];
+  const d = mx - mn, s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+  const h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h / 6, s, l];
+}
+function hslToRgb([h, s, l]) {
+  if (!s) return [l * 255, l * 255, l * 255].map(Math.round);
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+  const f = (t) => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
+  return [f(h + 1 / 3), f(h), f(h - 1 / 3)].map((v) => Math.round(v * 255));
+}
+/* Wall tint from the piece's own colour, muted like the reference. Neutral pieces (black, white, grey) get a warm stone. */
+function coveTint(dom) {
+  const [h, s] = rgbToHsl(dom);
+  return s < 0.12 ? [196, 186, 180] : hslToRgb([h, Math.min(0.32, s * 0.7 + 0.08), 0.62]);
+}
+export function paintCove(g, S, Hh, dom) {
+  const t = coveTint(dom), floor = [236, 235, 233];
+  const wall = g.createLinearGradient(0, 0, 0, Hh);
+  wall.addColorStop(0, rgb(mix(t, [40, 30, 34], 0.12)));
+  wall.addColorStop(0.45, rgb(mix(t, floor, 0.35)));
+  wall.addColorStop(0.72, rgb(mix(t, floor, 0.68)));
+  wall.addColorStop(1, rgb(floor));
+  g.fillStyle = wall; g.fillRect(0, 0, S, Hh);
+  // soft key light behind the piece, and a darker falloff at the sides: the blurred, lit-from-the-front studio feel
+  const key = g.createRadialGradient(S / 2, Hh * 0.42, S * 0.05, S / 2, Hh * 0.42, S * 0.7);
+  key.addColorStop(0, "rgba(255,255,255,.22)"); key.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = key; g.fillRect(0, 0, S, Hh);
+  const side = g.createLinearGradient(0, 0, S, 0);
+  side.addColorStop(0, "rgba(40,30,34,.10)"); side.addColorStop(0.25, "rgba(40,30,34,0)"); side.addColorStop(0.75, "rgba(40,30,34,0)"); side.addColorStop(1, "rgba(40,30,34,.10)");
+  g.fillStyle = side; g.fillRect(0, 0, S, Hh);
+  // a little grain so the gradient never bands
+  const id = g.getImageData(0, 0, S, Hh), d = id.data;
+  for (let i = 0; i < d.length; i += 4) { const n = (((i * 2654435761) >>> 0) % 7) - 3; d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+  g.putImageData(id, 0, 0);
+}
+
+/* Centre the piece in the studio cove with a soft drop shadow and a contact shadow. */
+function compose(cv, alpha, W, H, cut, dom) {
+  const S = 1000, out = canvas(S, S), g = out.getContext("2d", { willReadFrequently: true });
+  paintCove(g, S, S, dom);
+  if (!cut) {  // no clean cut-out: the photo sits on the cove as a framed print, so the Armory still looks consistent
+    const s = Math.min(W, H), box = S * 0.74, x = (S - box) / 2, y = (S - box) / 2 - S * 0.02;
+    g.save(); g.shadowColor = "rgba(0,0,0,.25)"; g.shadowBlur = S * 0.035; g.shadowOffsetY = S * 0.014;
+    g.beginPath(); g.roundRect(x, y, box, box, S * 0.03); g.fillStyle = "#fff"; g.fill(); g.restore();
+    g.save(); g.beginPath(); g.roundRect(x, y, box, box, S * 0.03); g.clip();
+    g.drawImage(cv, (W - s) / 2, (H - s) / 2, s, s, x, y, box, box); g.restore();
     return out;
   }
   let x0 = W, y0 = H, x1 = 0, y1 = 0;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (alpha[y * W + x] > 0.15) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
   const bw = x1 - x0 + 1, bh = y1 - y0 + 1, k = Math.min((S * 0.8) / bw, (S * 0.8) / bh);
   const dw = bw * k, dh = bh * k, dx = (S - dw) / 2, dy = (S - dh) / 2 - S * 0.02;
-  const sweep = g.createRadialGradient(S / 2, S * 0.4, S * 0.05, S / 2, S * 0.45, S * 0.8);
-  sweep.addColorStop(0, "#fbfbf9"); sweep.addColorStop(1, "#e2e2de");
-  g.fillStyle = sweep; g.fillRect(0, 0, S, S);
   // contact shadow under the piece
   g.save(); g.translate(S / 2, dy + dh + S * 0.012); g.scale(1, 0.07);
   const cs = g.createRadialGradient(0, 0, 0, 0, 0, dw * 0.45);
@@ -215,7 +257,28 @@ function compose(cv, alpha, W, H, cut) {
   return out;
 }
 
-/* The whole studio pass. src: a File or a data URL. Returns { photo, cut } where cut says whether the background was removed. */
+/* ---------- AI cut-out: IMG.LY's open-source background remover (AGPL), running on the phone.
+   The ~42 MB model downloads once from IMG.LY's CDN and is cached; after that it works offline. Nothing is uploaded. */
+const BGR_URL = "https://esm.sh/@imgly/background-removal@1.7.0";
+let bgr = null;
+export const aiCutout = { progress: null };  // set to (fraction) => {} to show the one-time download
+async function mlAlpha(cv, W, H) {
+  if (!bgr) { const mod = await import(BGR_URL); bgr = mod.removeBackground || mod.default; }
+  const blob = await new Promise((r) => cv.toBlob(r, "image/png"));
+  const out = await bgr(blob, {
+    model: "isnet_quint8", output: { format: "image/png", type: "foreground" },
+    progress: (key, cur, total) => { if (aiCutout.progress && key.includes("fetch") && total) aiCutout.progress(cur / total); },
+  });
+  const img = await loadImage(URL.createObjectURL(out));
+  const c = canvas(W, H), g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(img, 0, 0, W, H);
+  const d = g.getImageData(0, 0, W, H).data, a = new Float32Array(W * H);
+  let fg = 0;
+  for (let i = 0; i < a.length; i++) { a[i] = d[i * 4 + 3] / 255; if (a[i] > 0.5) fg++; }
+  return fg > a.length * 0.008 && fg < a.length * 0.95 ? a : null;
+}
+
+/* The whole studio pass. src: a File or a data URL. Returns { photo, cut, cutout } where cut says whether the background was removed. */
 export async function studio(src) {
   const img = await loadImage(src);
   const s = Math.min(1, 900 / Math.max(img.width, img.height)), W = Math.round(img.width * s), H = Math.round(img.height * s);
@@ -228,14 +291,24 @@ export async function studio(src) {
     for (let i = 0; i < N; i++) alpha[i] = d[i * 4 + 3] / 255;
     cut = true; bg = [235, 235, 235];
   } else {
-    const m = autoMask(d, W, H);
-    if (m) { alpha = m.alpha; bg = m.bg; cut = true; } else { alpha.fill(1); bg = borderStats(d, W, H).median; }
+    // 1. the AI model; 2. if it can't run (first download offline, old phone), the colour/edge method
+    let a = null;
+    try { a = await mlAlpha(cv, W, H); } catch (e) { console.warn("AI cut-out unavailable:", e); }
+    if (a) { alpha = a; cut = true; bg = borderStats(d, W, H).median; }
+    else {
+      const m = autoMask(d, W, H);
+      if (m) { alpha = m.alpha; bg = m.bg; cut = true; } else { alpha.fill(1); bg = borderStats(d, W, H).median; }
+    }
   }
   correct(d, alpha, bg);
   sharpen(d, W, H);
+  // the piece's main colour, which tints its studio wall
+  let sr = 0, sg = 0, sb = 0, sw = 0;
+  for (let i = 0; i < N; i += 3) if (alpha[i] > 0.5) { sr += d[i * 4]; sg += d[i * 4 + 1]; sb += d[i * 4 + 2]; sw++; }
+  const dom = sw ? [sr / sw, sg / sw, sb / sw] : [128, 128, 128];
   for (let i = 0; i < N; i++) d[i * 4 + 3] = Math.round(alpha[i] * 255);
   g.putImageData(id, 0, 0);
-  return { photo: compose(cv, alpha, W, H, cut).toDataURL("image/jpeg", 0.86), cut, cutout: cut ? trimCutout(cv, alpha, W, H) : null };
+  return { photo: compose(cv, alpha, W, H, cut, dom).toDataURL("image/jpeg", 0.86), cut, cutout: cut ? trimCutout(cv, alpha, W, H) : null };
 }
 
 /* The piece alone on a transparent background, trimmed and capped at 640px: what outfit boards are built from. */
@@ -255,20 +328,11 @@ const hexRgb = (h) => { const m = /^#?([0-9a-f]{6})$/i.exec(h || ""); const n = 
 const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
 const rgb = (c) => `rgb(${c[0]},${c[1]},${c[2]})`;
 
-export async function outfitBoard(items, { dark = true } = {}) {
+export async function outfitBoard(items) {
   // items: [{ slot, color, cutout?, photo?, name }]; order and size come from the slot
-  const W = 1080, H = 1350, cv = canvas(W, H), g = cv.getContext("2d");
-  // backdrop: a tint of the top (or the first piece) fading to soft grey, like a studio sweep
-  const key = hexRgb((items.find((i) => i.slot === "top") || items[0] || {}).color);
-  const base = dark ? [26, 26, 30] : [236, 236, 238], mid = dark ? [44, 44, 50] : [214, 214, 216];
-  const sweep = g.createLinearGradient(0, 0, 0, H);
-  sweep.addColorStop(0, rgb(mix(base, key, dark ? 0.38 : 0.45)));
-  sweep.addColorStop(0.55, rgb(mix(mid, key, dark ? 0.18 : 0.22)));
-  sweep.addColorStop(1, rgb(dark ? [16, 16, 18] : [232, 232, 230]));
-  g.fillStyle = sweep; g.fillRect(0, 0, W, H);
-  const floor = g.createRadialGradient(W / 2, H * 0.92, 10, W / 2, H * 0.92, W * 0.6);
-  floor.addColorStop(0, dark ? "rgba(255,255,255,.06)" : "rgba(255,255,255,.5)"); floor.addColorStop(1, "rgba(255,255,255,0)");
-  g.fillStyle = floor; g.fillRect(0, 0, W, H);
+  const W = 1080, H = 1350, cv = canvas(W, H), g = cv.getContext("2d", { willReadFrequently: true });
+  // the same studio cove as the pieces, tinted from the top (like the reference: pink outfit, pink wall)
+  paintCove(g, W, H, hexRgb((items.find((i) => i.slot === "top") || items[0] || {}).color));
 
   const by = (s) => items.filter((i) => i.slot === s);
   const hat = by("hat")[0], layer = by("layer")[0], top = by("top")[0] || layer, bottom = by("bottom")[0], shoes = by("shoes")[0];

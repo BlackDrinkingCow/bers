@@ -48,6 +48,11 @@ Bers tracks what it spends in Settings and stops at your cap ($5 by default). Pi
 Add `?mock` to the URL, for example `http://localhost:8770/?mock`, and every Claude call returns a canned answer.
 Run locally with: `py -3 -m http.server 8770 --directory C:\Jarvis\bers\app`
 
+## Credits
+
+- Cut-outs: [@imgly/background-removal](https://github.com/imgly/background-removal-js) 1.7.0 (AGPL-3.0). It runs on the phone, and its model downloads once from IMG.LY's CDN.
+- Heading font: New Rocker (SIL Open Font License, `fonts/OFL.txt`).
+
 ## Not in this version
 
 - Background removal on photos. They're stored as taken, shrunk to 768 px.
