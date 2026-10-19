@@ -2,7 +2,7 @@
 import * as db from "./db.js";
 import * as ai from "./ai.js";
 import * as wx from "./weather.js";
-import { fileToDataUrl, squareAvatar, pickPhotos } from "./image.js";
+import { fileToDataUrl, squareAvatar, pickPhotos, studio, pasteImage } from "./image.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -327,28 +327,33 @@ function bindUseChips() {
 }
 
 /* Add pieces: pick photos, Jin-Woo appraises each, you review and save, one by one. */
-async function addPieces({ ride = false, hint = "", price = null } = {}) {
-  const files = await pickPhotos({ multiple: !hint });
+async function addPieces({ ride = false, hint = "", price = null, files = null } = {}) {
+  files = files || await pickPhotos({ multiple: !hint });
   if (!files.length) return;
   let added = 0;
   for (let i = 0; i < files.length; i++) {
-    sheet(`<div class="loading"><span class="spin"></span>Jin-Woo is appraising item ${i + 1} of ${files.length}…</div>`);
-    let ph, d = {};
+    sheet(`<div class="loading"><span class="spin"></span>${S.studioOn ? "Retouching and appraising" : "Jin-Woo is appraising"} item ${i + 1} of ${files.length}…</div>`);
+    let ph, st = null, d = {};
     try { ph = await fileToDataUrl(files[i]); } catch (e) { toast(e.message); continue; }
-    try { d = await ai.describePiece(ph, hint); }
+    if (S.studioOn) { try { st = await studio(files[i]); } catch (e) { console.error(e); } }
+    try { d = await ai.describePiece(st ? st.photo : ph, hint); }
     catch (e) { toast(e.code === "nokey" ? "No API key yet: fill it in yourself, or add your key in Settings." : e.message); }
-    const p = { id: db.uid(), photo: ph, addedAt: ymd(), wears: 0, wash: false, price,
+    // photo = the version shown; alt = the other one, so you can switch any time
+    const p = { id: db.uid(), photo: st ? st.photo : ph, alt: st ? ph : null, isStudio: !!st, addedAt: ymd(), wears: 0, wash: false, price,
       name: d.name || hint || "", slot: DAY_SLOTS.includes(d.slot) ? d.slot : null, rslot: RIDE_SLOTS.includes(d.rslot) ? d.rslot : null,
       color: d.color || "#888888", fabric: d.fabric || "", fit: d.fit || "", formality: d.formality || 3, season: d.season || "", tags: d.tags || [], note: d.note || "",
       armour: !!d.armour };
     p.day = !!p.slot && !(ride && !d.slot);
     p.ride = !!p.rslot && (ride || !!d.ride);
     const saved = await new Promise((resolve) => {
-      sheet(`<div class="eyebrow">Piece ${i + 1} of ${files.length}</div><img class="big-photo" src="${ph}" alt="">
+      sheet(`<div class="eyebrow">Piece ${i + 1} of ${files.length}</div><img class="big-photo" id="f-photo" src="${p.photo}" alt="">
+        ${st ? photoChoice(true) + (st.cut ? "" : '<p class="dim small m0 center">Busy background, so the colour and framing were fixed but the background stayed. A plain background or a Photos cut-out gives the studio look.</p>') : ""}
         ${p.note ? agent("jinwoo", p.note, true) : ""}${pieceForm(p)}
         <div class="actions"><button class="btn main" id="f-save">Save to Armory</button><button class="btn" id="f-skip">Skip</button></div>`, { onClose: () => resolve(null) });
       bindUseChips();
-      $("#f-save").onclick = () => resolve(readForm(p));
+      let useStudio = !!st;
+      bindPhotoChoice((v) => { useStudio = v; $("#f-photo").src = v ? st.photo : ph; });
+      $("#f-save").onclick = () => resolve({ ...readForm(p), photo: useStudio ? st.photo : ph, alt: st ? (useStudio ? ph : st.photo) : null, isStudio: useStudio });
       $("#f-skip").onclick = () => resolve(false);
     });
     if (saved === null) break;
@@ -362,9 +367,37 @@ async function addPieces({ ride = false, hint = "", price = null } = {}) {
   return added;
 }
 
+/* Studio / Original switch, shared by the add sheet and the piece sheet. */
+const photoChoice = (studioOn) => `<div class="ctx" style="justify-content:center" id="ph-choice">
+  <button class="chip sm ${studioOn ? "on" : ""}" data-ph="studio">Studio</button><button class="chip sm ${studioOn ? "" : "on"}" data-ph="original">Original</button></div>`;
+function bindPhotoChoice(cb) {
+  $("#ph-choice").onclick = (e) => { const c = e.target.closest("[data-ph]"); if (!c) return;
+    $$("#ph-choice .chip").forEach((b) => b.classList.toggle("on", b === c)); cb(c.dataset.ph === "studio"); };
+}
+/* Retouch a piece already in the Armory; the old photo is kept as the alternative. */
+async function retouch(p) {
+  const src = p.isStudio && p.alt ? p.alt : p.photo, st = await studio(src);
+  const q = { ...p, photo: st.photo, alt: src, isStudio: true };
+  await savePiece(q);
+  return { q, cut: st.cut };
+}
+
+/* Two ways in: photos from the camera roll, or a cut-out pasted from iPhone Photos (cleanest edges). */
+function addChooser(ride) {
+  sheet(`<div class="eyebrow">Jin-Woo · new items</div><h2 class="m0">Add to the Armory</h2>
+    <button class="btn main" id="a-pick">Choose photos</button>
+    <button class="btn" id="a-paste">Paste cut-out from Photos</button>
+    <ul class="why"><li>Studio retouch cuts each piece out, fixes the colour and sets it on a clean backdrop. Plain backgrounds work best: a bed sheet, the floor or a wall.</li>
+      <li>Cleanest edges: in the Photos app, press and hold the piece until it glows, tap <b>Copy</b>, then come back and tap <b>Paste cut-out</b>.</li></ul>`);
+  $("#a-pick").onclick = async () => { const files = await pickPhotos({ multiple: true }); if (files.length) addPieces({ ride, files }); };
+  $("#a-paste").onclick = async () => { try { addPieces({ ride, files: [await pasteImage()] }); } catch (e) { toast(e.message || "Couldn't paste. Copy the cut-out in Photos first."); } };
+}
+
 function openPiece(p) {
   const cpw = p.price ? Math.round(p.price / Math.max(1, p.wears || 0)) : null;
-  sheet(`${p.photo ? `<img class="big-photo" src="${p.photo}" alt="">` : ""}<h2 class="m0">${esc(p.name)}</h2>
+  sheet(`${p.photo ? `<img class="big-photo" id="p-photo" src="${p.photo}" alt="">` : ""}
+    ${p.alt ? photoChoice(p.isStudio) : p.photo ? `<button class="btn" id="p-retouch">Studio retouch</button>` : ""}
+    <h2 class="m0">${esc(p.name)}</h2>
     <div class="ctx"><span class="pill">Worn <b>${p.wears || 0}×</b></span>${p.lastWorn ? `<span class="pill">Last <b>${p.lastWorn}</b></span>` : ""}
       ${p.price ? `<span class="pill">Paid <b>AED ${p.price}</b></span><span class="pill">Cost per wear <b>AED ${cpw}</b></span>` : ""}</div>
     ${p.note ? agent("jinwoo", p.note, true) : ""}
@@ -372,6 +405,16 @@ function openPiece(p) {
     ${pieceForm(p)}
     <div class="actions"><button class="btn main" id="p-save">Save changes</button><button class="btn" id="p-del">Delete</button></div>`);
   bindUseChips();
+  if (p.alt) bindPhotoChoice(async (studioWanted) => {
+    if (studioWanted === !!p.isStudio) return;
+    p = { ...p, photo: p.alt, alt: p.photo, isStudio: studioWanted };
+    await savePiece(p); $("#p-photo").src = p.photo; render();
+  });
+  if ($("#p-retouch")) $("#p-retouch").onclick = async () => {
+    const b = $("#p-retouch"); b.disabled = true; b.innerHTML = '<span class="spin"></span> Retouching…';
+    try { const { q, cut } = await retouch(p); render(); openPiece(q); toast(cut ? "[System] Item retouched" : "Colour and framing fixed. The background was too busy to cut out."); }
+    catch (e) { fail(e); b.disabled = false; b.textContent = "Studio retouch"; }
+  };
   $("#p-wash").onclick = async () => { await savePiece({ ...p, wash: !p.wash }); closeSheet(); render(); toast(p.wash ? "[System] Item restored to inventory" : "[System] Item sent to the wash"); };
   $("#p-save").onclick = async () => { await savePiece(readForm(p)); closeSheet(); render(); toast("Saved"); };
   $("#p-del").onclick = async () => {
@@ -524,8 +567,8 @@ $("#view").addEventListener("click", async (e) => {
     },
     "save-look": () => saveLook(S.dared ? S.pick.darePieces : S.pick.cur),
     ask: () => chatSheet(),
-    add: () => addPieces(),
-    "add-ride": () => addPieces({ ride: true }),
+    add: () => addChooser(false),
+    "add-ride": () => addChooser(true),
     "ride-locker": () => { S.filter = "ride"; goTab("armory"); },
     "ride-go-pick": () => busy("ride-go-pick", runRide),
     "ride-go": () => afterRide(),
@@ -764,6 +807,10 @@ async function openSettings() {
     <h2 class="m0">Clothing budget</h2>
     <div class="two"><label class="lb">Per month (AED)<input class="field" id="s-bm" inputmode="numeric" value="${S.budgetMonth || 600}"></label>
       <label class="lb">Per item (AED)<input class="field" id="s-bi" inputmode="numeric" value="${S.budgetItem || 200}"></label></div>
+    <h2 class="m0">Studio photos</h2>
+    <div class="ctx" id="s-studio"><button class="chip ${S.studioOn ? "on" : ""}" data-studio="1">On</button><button class="chip ${S.studioOn ? "" : "on"}" data-studio="0">Off</button></div>
+    <p class="dim m0 small">On: every new piece is cut out, colour-corrected and set on a clean studio backdrop, on this phone. You can switch any piece back to its original.</p>
+    ${S.pieces.some((p) => p.photo && !p.isStudio) ? `<button class="btn" id="s-retouch-all">Retouch my ${S.pieces.filter((p) => p.photo && !p.isStudio).length} existing pieces</button>` : ""}
     <h2 class="m0">Backgrounds</h2>
     <p class="dim m0 small">Pick a photo for any tab. Tabs without one keep the plain look. Photos stay on this phone and are darkened so text stays readable.</p>
     <div class="stack" id="s-bgs">${bgRows()}</div>
@@ -799,6 +846,17 @@ async function openSettings() {
     const p = { name: "Your location", lat: pos.coords.latitude, lon: pos.coords.longitude };
     await db.kv.set("place", p); await db.kv.set("weather", null); S.weather = await wx.today(p).catch(() => null); toast("Using your location"); render();
   }, () => toast("Location not allowed. Type your city instead."));
+  $("#s-studio").onclick = async (e) => {
+    const c = e.target.closest("[data-studio]"); if (!c) return;
+    S.studioOn = c.dataset.studio === "1"; await db.kv.set("studio", S.studioOn);
+    $$("#s-studio .chip").forEach((b) => b.classList.toggle("on", b === c));
+  };
+  if ($("#s-retouch-all")) $("#s-retouch-all").onclick = async () => {
+    const list = S.pieces.filter((p) => p.photo && !p.isStudio), b = $("#s-retouch-all");
+    b.disabled = true; let n = 0;
+    for (const p of list) { b.innerHTML = `<span class="spin"></span> Retouching ${++n} of ${list.length}…`; try { await retouch(p); } catch (e) { console.error(e); } }
+    await loadData(); render(); b.textContent = "Done"; toast(`[System] ${list.length} item${list.length > 1 ? "s" : ""} retouched`);
+  };
   const saveBg = async (tabs, pic) => {
     tabs.forEach((t) => (pic ? (BG.pics[t] = pic) : delete BG.pics[t]));
     await db.kv.set("bgPics", BG.pics);
@@ -879,6 +937,7 @@ async function boot() {
   S.gaps = await db.kv.get("gaps", null);
   S.budgetMonth = await db.kv.get("budgetMonth", 600); S.budgetItem = await db.kv.get("budgetItem", 200);
   S.sinceBackup = await db.kv.get("sinceBackup", 0);
+  S.studioOn = await db.kv.get("studio", true);
   render({ enter: true });
   wx.today().then((w) => { S.weather = w; render(); }).catch(() => { S.weatherFailed = true; render(); });
 }
