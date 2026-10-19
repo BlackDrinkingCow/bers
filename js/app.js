@@ -13,7 +13,8 @@ const daysAgo = (date) => Math.floor((Date.now() - new Date(date).getTime()) / 8
 
 /* ---------- the crew */
 const CREW = {
-  chopper: { name: "Chopper", role: "Head stylist · keeper of the Armory", ring: "#e10600", vibe: "Sweet, excitable, gets flustered when you thank him. Practical picks that keep you comfortable all day." },
+  chopper: { name: "Chopper", role: "Head stylist · Gear Up", ring: "#e10600", vibe: "Sweet, excitable, gets flustered when you thank him. Practical picks that keep you comfortable all day." },
+  jinwoo: { name: "Jin-Woo", role: "The Armory · keeper of your inventory", ring: "#7b4dff", vibe: "Calm, quiet, unshakeable. Says little and means all of it. Treats your closet like an inventory: appraises every piece you bring in and keeps it ready." },
   guts: { name: "Guts", role: "The Forge · judges your builds", ring: "#8a8a92", vibe: "Few words, no flattery. Scores what you build out of 10 and names the weak link." },
   rogue: { name: "Rogue", role: "The Chronicle · never forgets a fit", ring: "#3fae5a", vibe: "Southern charm with a bite. Remembers every outfit you wear and who saw it, and calls you out when you repeat." },
   blackbeard: { name: "Blackbeard", role: "The Hoard · finds what you're missing", ring: "#3a3a40", vibe: "Greedy and loud. Hunts down the pieces your closet is missing, inside your budget." },
@@ -22,6 +23,7 @@ const CREW = {
 };
 const EMBLEM = {
   chopper: '<path d="M13 31 Q12 12 24 11 Q36 12 35 31 Z" fill="#f29bb7"/><rect x="13" y="26" width="22" height="5" fill="#c2577f"/><ellipse cx="24" cy="32" rx="17" ry="4.5" fill="#f29bb7"/><path d="M20 15 L28 23 M28 15 L20 23" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/>',
+  jinwoo: '<circle cx="24" cy="24" r="15" fill="#7b4dff" opacity=".25"/><path d="M12 36 L31 13 L34 11 L33 14 L14 38 Z M36 36 L17 13 L14 11 L15 14 L34 38 Z" fill="#c9b8ff" stroke="#7b4dff" stroke-width="1"/><path d="M10 33 L16 39 M38 33 L32 39" stroke="#7b4dff" stroke-width="3.2" stroke-linecap="round"/>',
   guts: '<path d="M24 7 V41 M24 41 L15 31 M24 41 L33 31 M15 15 Q24 25 33 15" fill="none" stroke="#e10600" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>',
   rogue: '<path d="M10 42 Q6 12 24 9 Q42 12 38 42 Q34 32 32 20 Q24 25 16 20 Q14 32 10 42 Z" fill="#6b3a24"/><path d="M21 11 Q15 22 14 38 M27 11 Q33 22 34 38" fill="none" stroke="#f5f5f5" stroke-width="4" stroke-linecap="round"/>',
   blackbeard: '<circle cx="24" cy="20" r="11" fill="#e9e6df"/><rect x="18" y="27" width="12" height="6" rx="2" fill="#e9e6df"/><circle cx="20" cy="19" r="2.8" fill="#111"/><circle cx="28" cy="19" r="2.8" fill="#111"/><path d="M14 30 Q24 48 34 30 Q30 38 24 38 Q18 38 14 30 Z" fill="#1a1a1c" stroke="#555" stroke-width=".8"/>',
@@ -187,7 +189,7 @@ const weatherPill = () => S.weather ? `<button class="pill" id="weather">${esc(S
 const skelFit = (n = 4) => `<div class="glass fit" aria-busy="true">${'<div class="piece skel"></div>'.repeat(n)}</div>`;
 function emptyCloset(mode) {
   const need = mode === "ride" ? "a helmet, a jacket and gloves tagged Ride" : "at least a top, a bottom and shoes";
-  return `<div class="glass pad stack"><b>Your Armory needs ${need}.</b><span class="dim">Add photos and Chopper describes each piece. Then the crew can start picking.</span>
+  return `<div class="glass pad stack"><b>Your Armory needs ${need}.</b><span class="dim">Add photos and Jin-Woo appraises each piece. Then the crew can start picking.</span>
     <button class="btn main" id="${mode === "ride" ? "add-ride" : "add"}">Add pieces</button></div>`;
 }
 function gear() {
@@ -284,9 +286,9 @@ function armory() {
   const unworn = S.pieces.filter(isUnworn), since = S.sinceBackup || 0;
   return `<section class="screen">
     <div><div class="eyebrow">${S.pieces.length} pieces</div><h1>Armory</h1></div>
-    ${agent("chopper", S.pieces.length ? "Everything you own lives here. Tap a piece to edit it, or hit + to show me something new!" : "It's empty in here! Hit + and pick a few photos from your camera roll.")}
+    ${agent("jinwoo", S.pieces.length ? `Inventory: ${S.pieces.length} item${S.pieces.length > 1 ? "s" : ""}. Bring me something new and I'll appraise it.` : "Your inventory is empty. Bring me your gear. I'll take it from there.")}
     ${since >= 10 ? `<button class="glass tip warn" id="backup-nudge"><span style="font-size:28px;text-align:center">⤓</span><span><b>${since} new pieces since your last backup.</b> <span class="dim">Tap to save a backup to iCloud Drive.</span></span></button>` : ""}
-    ${unworn.length ? `<button class="glass tip" id="unworn">${mini(unworn[0])}<span><b>${unworn.length} piece${unworn.length > 1 ? "s" : ""} not worn in a long time.</b> <span class="dim">Wear, sell or donate?</span></span></button>` : ""}
+    ${unworn.length ? `<button class="glass tip" id="unworn">${mini(unworn[0])}<span><b>${unworn.length} item${unworn.length > 1 ? "s" : ""} sitting unused.</b> <span class="dim">Use them, or let them go. Sell or donate.</span></span></button>` : ""}
     <div class="chips">${slots.map((s) => `<button class="chip ${s === f ? "on" : ""}" data-filter="${s}">${s === "all" ? "Everything" : s === "wash" ? `In the wash · ${S.pieces.filter((p) => p.wash).length}` : s[0].toUpperCase() + s.slice(1)}</button>`).join("")}</div>
     <div class="grid"><button class="add" id="add"><span>+</span>Add pieces</button>${list.map((p) => pieceBtn(p)).join("")}</div>
   </section>`;
@@ -324,13 +326,13 @@ function bindUseChips() {
   }));
 }
 
-/* Add pieces: pick photos, Chopper describes each, you review and save, one by one. */
+/* Add pieces: pick photos, Jin-Woo appraises each, you review and save, one by one. */
 async function addPieces({ ride = false, hint = "", price = null } = {}) {
   const files = await pickPhotos({ multiple: !hint });
   if (!files.length) return;
   let added = 0;
   for (let i = 0; i < files.length; i++) {
-    sheet(`<div class="loading"><span class="spin"></span>Chopper is looking at photo ${i + 1} of ${files.length}…</div>`);
+    sheet(`<div class="loading"><span class="spin"></span>Jin-Woo is appraising item ${i + 1} of ${files.length}…</div>`);
     let ph, d = {};
     try { ph = await fileToDataUrl(files[i]); } catch (e) { toast(e.message); continue; }
     try { d = await ai.describePiece(ph, hint); }
@@ -343,7 +345,7 @@ async function addPieces({ ride = false, hint = "", price = null } = {}) {
     p.ride = !!p.rslot && (ride || !!d.ride);
     const saved = await new Promise((resolve) => {
       sheet(`<div class="eyebrow">Piece ${i + 1} of ${files.length}</div><img class="big-photo" src="${ph}" alt="">
-        ${p.note ? agent("chopper", p.note, true) : ""}${pieceForm(p)}
+        ${p.note ? agent("jinwoo", p.note, true) : ""}${pieceForm(p)}
         <div class="actions"><button class="btn main" id="f-save">Save to Armory</button><button class="btn" id="f-skip">Skip</button></div>`, { onClose: () => resolve(null) });
       bindUseChips();
       $("#f-save").onclick = () => resolve(readForm(p));
@@ -355,7 +357,7 @@ async function addPieces({ ride = false, hint = "", price = null } = {}) {
   closeSheet();
   if (added) {
     S.sinceBackup = (S.sinceBackup || 0) + added; await db.kv.set("sinceBackup", S.sinceBackup);
-    await loadData(); render(); toast(`${added} piece${added > 1 ? "s" : ""} added`);
+    await loadData(); render(); toast(`[System] ${added} item${added > 1 ? "s" : ""} added to your inventory`);
   }
   return added;
 }
@@ -365,12 +367,12 @@ function openPiece(p) {
   sheet(`${p.photo ? `<img class="big-photo" src="${p.photo}" alt="">` : ""}<h2 class="m0">${esc(p.name)}</h2>
     <div class="ctx"><span class="pill">Worn <b>${p.wears || 0}×</b></span>${p.lastWorn ? `<span class="pill">Last <b>${p.lastWorn}</b></span>` : ""}
       ${p.price ? `<span class="pill">Paid <b>AED ${p.price}</b></span><span class="pill">Cost per wear <b>AED ${cpw}</b></span>` : ""}</div>
-    ${p.note ? agent("chopper", p.note, true) : ""}
+    ${p.note ? agent("jinwoo", p.note, true) : ""}
     <button class="btn ${p.wash ? "" : "main"}" id="p-wash">${p.wash ? "Back in the closet" : "Put in the wash"}</button>
     ${pieceForm(p)}
     <div class="actions"><button class="btn main" id="p-save">Save changes</button><button class="btn" id="p-del">Delete</button></div>`);
   bindUseChips();
-  $("#p-wash").onclick = async () => { await savePiece({ ...p, wash: !p.wash }); S.pick = S.pick; closeSheet(); render(); toast(p.wash ? "Back in the Armory" : "In the wash"); };
+  $("#p-wash").onclick = async () => { await savePiece({ ...p, wash: !p.wash }); closeSheet(); render(); toast(p.wash ? "[System] Item restored to inventory" : "[System] Item sent to the wash"); };
   $("#p-save").onclick = async () => { await savePiece(readForm(p)); closeSheet(); render(); toast("Saved"); };
   $("#p-del").onclick = async () => {
     if (!confirm(`Delete ${p.name}? This can't be undone, unless you have a backup.`)) return;
@@ -653,7 +655,7 @@ function tripSheet() {
 function boughtIt(g) {
   sheet(`<div class="eyebrow">Blackbeard · into the Armory</div><h2 class="m0">${esc(g.name)}</h2>
     <label class="lb">What did you pay (AED)?<input class="field" id="b-price" inputmode="decimal" placeholder="180"></label>
-    <ol class="steps"><li>Snap a photo of it, or use the shop's photo.</li><li>Chopper describes it like any new piece.</li><li>It counts toward this month's budget.</li></ol>
+    <ol class="steps"><li>Snap a photo of it, or use the shop's photo.</li><li>Jin-Woo appraises it like any new piece.</li><li>It counts toward this month's budget.</li></ol>
     <button class="btn main" id="b-go">Add photo</button>`);
   $("#b-go").onclick = async () => {
     const price = +$("#b-price").value || 0;
@@ -733,7 +735,7 @@ async function doRestore() {
 }
 
 /* One row per tab: its current background and buttons to change or clear it. */
-const TAB_AGENT = { gear: "chopper", armory: "chopper", forge: "guts", chronicle: "rogue", hoard: "blackbeard", ride: "rossi" };
+const TAB_AGENT = { gear: "chopper", armory: "jinwoo", forge: "guts", chronicle: "rogue", hoard: "blackbeard", ride: "rossi" };
 function bgRows() {
   return TABS.map(([id, label]) => { const pic = BG.pics[id];
     return `<div class="glass tip" style="grid-template-columns:56px 1fr auto">
