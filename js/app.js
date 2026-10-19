@@ -3,6 +3,7 @@ import * as db from "./db.js";
 import * as ai from "./ai.js";
 import * as wx from "./weather.js";
 import { fileToDataUrl, squareAvatar, pickPhotos } from "./image.js";
+import { ECLIPSE } from "./scene.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -674,6 +675,15 @@ function crewSheet(k) {
   $("#pic-reset").onclick = () => set(null);
 }
 
+/* ---------- background picture: "eclipse" (default), "photo" (your own, kept on the phone) or "none" */
+async function applyBackground() {
+  const mode = await db.kv.get("bgMode", "eclipse"), pic = mode === "photo" ? await db.kv.get("bgPic", null) : null;
+  const el = $("#bg");
+  el.className = pic ? "photo" : "";
+  el.innerHTML = mode === "eclipse" ? ECLIPSE : pic ? `<img src="${pic}" alt="">` : "";
+  document.documentElement.style.setProperty("--bg-o", await db.kv.get("bgStrength", 0.9));
+}
+
 /* ---------- backup */
 async function doBackup() {
   const blob = await db.exportBackup(), name = `bers-backup-${ymd()}.json`;
@@ -704,6 +714,7 @@ async function doRestore() {
 async function openSettings() {
   const key = await db.kv.get("apiKey", ""), u = await ai.usage(), cap = await db.kv.get("capUSD", 5), place = await db.kv.get("place", wx.ABU_DHABI);
   const last = await db.kv.get("lastBackup", null);
+  const bgMode = await db.kv.get("bgMode", "eclipse"), bgStrength = await db.kv.get("bgStrength", 0.9);
   sheet(`<div class="eyebrow">Settings</div><h2 class="m0">Claude API key</h2>
     <input class="field" id="s-key" type="password" placeholder="${key ? "Saved · paste a new one to replace it" : "sk-ant-…"}" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Claude API key">
     <div class="actions"><button class="btn main" id="s-key-save">Save on this phone</button><button class="btn" id="s-key-test">Test key</button></div>
@@ -718,6 +729,10 @@ async function openSettings() {
     <h2 class="m0">Clothing budget</h2>
     <div class="two"><label class="lb">Per month (AED)<input class="field" id="s-bm" inputmode="numeric" value="${S.budgetMonth || 600}"></label>
       <label class="lb">Per item (AED)<input class="field" id="s-bi" inputmode="numeric" value="${S.budgetItem || 200}"></label></div>
+    <h2 class="m0">Background</h2>
+    <div class="ctx" id="s-bg">${[["eclipse", "Eclipse"], ["photo", "My picture"], ["none", "Off"]].map(([k, l]) => `<button class="chip ${bgMode === k ? "on" : ""}" data-bg="${k}">${l}</button>`).join("")}</div>
+    <label class="lb">Strength<input type="range" id="s-bg-o" min="0.2" max="1" step="0.05" value="${bgStrength}"></label>
+    <p class="dim m0 small">My picture: choose any image from your camera roll. It stays on this phone and is darkened so text stays readable.</p>
     <h2 class="m0">Weather city</h2>
     <div class="two" style="grid-template-columns:1fr auto"><input class="field" id="s-city" value="${esc(place.name)}"><button class="btn" id="s-city-go">Set</button></div>
     <button class="btn" id="s-geo">Use my location</button>
@@ -748,6 +763,20 @@ async function openSettings() {
     const p = { name: "Your location", lat: pos.coords.latitude, lon: pos.coords.longitude };
     await db.kv.set("place", p); await db.kv.set("weather", null); S.weather = await wx.today(p).catch(() => null); toast("Using your location"); render();
   }, () => toast("Location not allowed. Type your city instead."));
+  $("#s-bg").onclick = async (e) => {
+    const c = e.target.closest("[data-bg]"); if (!c) return;
+    let mode = c.dataset.bg;
+    if (mode === "photo") {
+      const [f] = await pickPhotos();
+      if (!f) return;
+      await db.kv.set("bgPic", await fileToDataUrl(f, 1400, 0.8));
+    }
+    await db.kv.set("bgMode", mode);
+    $$("#s-bg [data-bg]").forEach((b) => b.classList.toggle("on", b.dataset.bg === mode));
+    applyBackground();
+  };
+  $("#s-bg-o").oninput = (e) => document.documentElement.style.setProperty("--bg-o", e.target.value);
+  $("#s-bg-o").onchange = (e) => db.kv.set("bgStrength", +e.target.value);
   $("#s-export").onclick = () => doBackup().catch(fail);
   $("#s-restore").onclick = doRestore;
   $("#layer .sheet").addEventListener("click", (e) => { const b = e.target.closest("[data-crew]"); if (b) crewSheet(b.dataset.crew); });
@@ -797,6 +826,7 @@ $("#btn-theme").onclick = () => {
 /* ---------- boot */
 async function boot() {
   const theme = await db.kv.get("theme", null); if (theme) document.documentElement.dataset.theme = theme;
+  applyBackground();
   await loadData();
   const dow = new Date().getDay();
   S.occ = S.occ || (dow >= 1 && dow <= 5 ? "work" : "casual");
@@ -812,4 +842,13 @@ async function boot() {
   wx.today().then((w) => { S.weather = w; render(); }).catch(() => { S.weatherFailed = true; render(); });
 }
 boot().catch(fail);
-if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("sw.js").catch(() => {});
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  // updateViaCache "none": the phone always checks for a new sw.js instead of trusting its 10-minute copy.
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((r) => r.update()).catch(() => {});
+  // When a new version takes over while the app is open, reload once so you see it.
+  // (Not on the very first visit, when there was no old version to replace.)
+  let reloaded = false; const hadOld = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadOld && !reloaded) { reloaded = true; location.reload(); } });
+}
+// Coming back to the app after a while: check for an update.
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") navigator.serviceWorker?.getRegistration().then((r) => r?.update()).catch(() => {}); });

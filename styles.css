@@ -33,6 +33,16 @@ body { background: var(--bg); color: var(--fg); font: 16px/1.45 var(--font); -we
 body::before { content: ""; position: fixed; inset: -20%; z-index: -1; pointer-events: none;
   background: radial-gradient(40% 35% at 85% 10%, var(--glow-a), transparent 70%), radial-gradient(45% 40% at 5% 60%, var(--glow-b), transparent 70%),
               radial-gradient(35% 30% at 80% 95%, var(--glow-a), transparent 70%); }
+/* background picture: the Eclipse scene or your own photo, behind everything, darkened so text stays readable */
+:root { --ink: #020203; --sky-low: #3a0808; --bg-o: .9; }
+:root[data-theme="light"] { --ink: #2a2a2e; --sky-low: #f2c9c6; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --ink: #2a2a2e; --sky-low: #f2c9c6; } }
+#bg { position: fixed; inset: 0; z-index: -2; pointer-events: none; opacity: var(--bg-o); transition: opacity var(--dur-slow) var(--ease-out); }
+#bg svg, #bg img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+#bg.photo::after { content: ""; position: absolute; inset: 0;
+  background: linear-gradient(var(--bg) 0%, color-mix(in srgb, var(--bg) 60%, transparent) 22%, color-mix(in srgb, var(--bg) 45%, transparent) 60%, var(--bg) 100%); }
+:root[data-theme="light"] #bg svg { opacity: .55; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) #bg svg { opacity: .55; } }
 .app { max-width: 480px; margin: 0 auto; min-height: 100%;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-top: env(safe-area-inset-top, 0px); padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px)); }
