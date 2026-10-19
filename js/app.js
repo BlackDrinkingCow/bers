@@ -3,7 +3,7 @@ import * as db from "./db.js";
 import * as ai from "./ai.js";
 import * as wx from "./weather.js";
 import { fileToDataUrl, squareAvatar, pickPhotos } from "./image.js";
-import { ECLIPSE } from "./scene.js";
+import { SCENES, DARE } from "./scene.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -473,6 +473,7 @@ function render({ enter = false } = {}) {
     else view.replaceChildren(tpl.content);
   }
   $$("[data-count]", view).forEach((el) => countTo(el, +el.dataset.count));
+  setScene();
 }
 
 $("#view").addEventListener("input", (e) => { if (e.target.id === "plan") S.plan = e.target.value; if (e.target.id === "seen") S.seen = e.target.value; });
@@ -675,13 +676,30 @@ function crewSheet(k) {
   $("#pic-reset").onclick = () => set(null);
 }
 
-/* ---------- background picture: "eclipse" (default), "photo" (your own, kept on the phone) or "none" */
+/* ---------- background: "crew" (each tab its agent's theme, the default), "photo" (your own, kept on the phone) or "none".
+   Scenes crossfade when the tab changes; Doflamingo's strings lie over Gear Up while the dare is on. */
+const BG = { mode: "crew", pic: null, key: null };
 async function applyBackground() {
-  const mode = await db.kv.get("bgMode", "eclipse"), pic = mode === "photo" ? await db.kv.get("bgPic", null) : null;
-  const el = $("#bg");
-  el.className = pic ? "photo" : "";
-  el.innerHTML = mode === "eclipse" ? ECLIPSE : pic ? `<img src="${pic}" alt="">` : "";
+  BG.mode = await db.kv.get("bgMode", "crew");
+  if (BG.mode === "eclipse") BG.mode = "crew";  // the old single-scene setting
+  BG.pic = BG.mode === "photo" ? await db.kv.get("bgPic", null) : null;
   document.documentElement.style.setProperty("--bg-o", await db.kv.get("bgStrength", 0.9));
+  BG.key = null; setScene();
+}
+function setScene() {
+  const key = BG.mode === "crew" ? S.tab + (S.tab === "gear" && S.dared ? "+dare" : "") : BG.mode === "photo" && BG.pic ? "photo" : "none";
+  if (key === BG.key) return;
+  BG.key = key;
+  const el = $("#bg");
+  el.classList.toggle("photo", key === "photo");
+  const layer = document.createElement("div");
+  layer.className = "layer";
+  layer.innerHTML = key === "photo" ? `<img src="${BG.pic}" alt="">` : key === "none" ? "" : SCENES[S.tab] + (key.endsWith("+dare") ? `<div class="dare">${DARE}</div>` : "");
+  const old = $$(".layer", el);
+  el.append(layer);
+  const show = () => layer.classList.add("in");
+  requestAnimationFrame(() => requestAnimationFrame(show)); setTimeout(show, 80);  // timer: in case frames are paused
+  setTimeout(() => old.forEach((o) => o.remove()), reduced() ? 200 : 500);
 }
 
 /* ---------- backup */
@@ -714,7 +732,7 @@ async function doRestore() {
 async function openSettings() {
   const key = await db.kv.get("apiKey", ""), u = await ai.usage(), cap = await db.kv.get("capUSD", 5), place = await db.kv.get("place", wx.ABU_DHABI);
   const last = await db.kv.get("lastBackup", null);
-  const bgMode = await db.kv.get("bgMode", "eclipse"), bgStrength = await db.kv.get("bgStrength", 0.9);
+  const bgMode = BG.mode, bgStrength = await db.kv.get("bgStrength", 0.9);
   sheet(`<div class="eyebrow">Settings</div><h2 class="m0">Claude API key</h2>
     <input class="field" id="s-key" type="password" placeholder="${key ? "Saved · paste a new one to replace it" : "sk-ant-…"}" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Claude API key">
     <div class="actions"><button class="btn main" id="s-key-save">Save on this phone</button><button class="btn" id="s-key-test">Test key</button></div>
@@ -730,9 +748,9 @@ async function openSettings() {
     <div class="two"><label class="lb">Per month (AED)<input class="field" id="s-bm" inputmode="numeric" value="${S.budgetMonth || 600}"></label>
       <label class="lb">Per item (AED)<input class="field" id="s-bi" inputmode="numeric" value="${S.budgetItem || 200}"></label></div>
     <h2 class="m0">Background</h2>
-    <div class="ctx" id="s-bg">${[["eclipse", "Eclipse"], ["photo", "My picture"], ["none", "Off"]].map(([k, l]) => `<button class="chip ${bgMode === k ? "on" : ""}" data-bg="${k}">${l}</button>`).join("")}</div>
+    <div class="ctx" id="s-bg">${[["crew", "Crew themes"], ["photo", "My picture"], ["none", "Off"]].map(([k, l]) => `<button class="chip ${bgMode === k ? "on" : ""}" data-bg="${k}">${l}</button>`).join("")}</div>
     <label class="lb">Strength<input type="range" id="s-bg-o" min="0.2" max="1" step="0.05" value="${bgStrength}"></label>
-    <p class="dim m0 small">My picture: choose any image from your camera roll. It stays on this phone and is darkened so text stays readable.</p>
+    <p class="dim m0 small">Crew themes: every tab takes on its agent's colours and look. My picture: one image from your camera roll, kept on this phone and darkened so text stays readable.</p>
     <h2 class="m0">Weather city</h2>
     <div class="two" style="grid-template-columns:1fr auto"><input class="field" id="s-city" value="${esc(place.name)}"><button class="btn" id="s-city-go">Set</button></div>
     <button class="btn" id="s-geo">Use my location</button>

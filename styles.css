@@ -41,6 +41,9 @@ body::before { content: ""; position: fixed; inset: -20%; z-index: -1; pointer-e
 :root[data-theme="light"] { --ink: #2a2a2e; --sky-low: #f2c9c6; }
 @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --ink: #2a2a2e; --sky-low: #f2c9c6; } }
 #bg { position: fixed; inset: 0; z-index: -2; pointer-events: none; opacity: var(--bg-o); transition: opacity var(--dur-slow) var(--ease-out); }
+#bg .layer, #bg .dare { position: absolute; inset: 0; }
+#bg .layer { opacity: 0; transition: opacity var(--dur-slow) var(--ease-out); }
+#bg .layer.in { opacity: 1; }
 #bg svg, #bg img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 #bg.photo::after { content: ""; position: absolute; inset: 0;
   background: linear-gradient(var(--bg) 0%, color-mix(in srgb, var(--bg) 60%, transparent) 22%, color-mix(in srgb, var(--bg) 45%, transparent) 60%, var(--bg) 100%); }
